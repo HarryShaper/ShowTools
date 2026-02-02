@@ -20,7 +20,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 #Add this path to the system path so It can find report generator
-if SCRIPT_DIR not in sys.path:
+if SCRIPT_DIR not in sys.path: 
     sys.path.append(SCRIPT_DIR)
 
 #Fetches generate_report.py // Now usable
