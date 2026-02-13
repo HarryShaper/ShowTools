@@ -24,7 +24,7 @@ email   = contact@alexanderrichtertd.com
 # 34. CONFIGURATION FILES
 #*******************************************************************************
 
-   a) Already creates a yaml report 
+   a) Already creates a yaml report. However, I have now added a user settings yaml file where you can input shoot details to add to the report.
 
    b) Docstrings added to the generate_report.py file and a comment added to the function call of generate_report in my "slate_sorter.py" file
 
