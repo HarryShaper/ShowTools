@@ -8,17 +8,18 @@ author      Harry Shaper <harryshaper@gmail.com>
 
 *************************************************'''
 
-# IMPORTS
-
 import os
 import shutil
 import sys
+import yaml
+import time
+
+from functools import wraps
+
 import generate_report
 
-#*********************************************************************#
-#DYNAMICALLY FETCH SELECTED FOLDER - For Right-Click / Send To
-#*********************************************************************#
-
+#*********************************************************************
+# DYNAMICALLY FETCH SELECTED FOLDER - For Right-Click / Send To
 if len(sys.argv) < 2:
     print("Usage: python sort_shoot.py <shoot_folder_path>")
     sys.exit(1)
@@ -29,48 +30,61 @@ if not os.path.isdir(SHOOT_FOLDER):
     print(f"Error: '{SHOOT_FOLDER}' is not a valid folder.")
     sys.exit(1)
 
-#*********************************************************************#    
-#CONSTANTS
-#*********************************************************************#
-
+#*********************************************************************    
+# CONSTANTS
 SLATE_LIST = []
 
-#*********************************************************************#    
-#FUNCTIONS
-#*********************************************************************#           
+#*********************************************************************
+# User settings / Config file
+with open ("user_settings.yaml","r") as f:
+    config = yaml.safe_load(f) or {}
+
+rename_shoot_folder = config.get("RENAME_SHOOT_FOLDER", True) 
+rename_suffix = config.get("RENAME_SUFFIX", "_sorted")
+rename_prefix = config.get("RENAME_PREFIX", "")
+
+#*********************************************************************   
+# FUNCTIONS       
+def timer_function(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f"{func.__name__} took {end_time - start_time:.4f} seconds.")
+        return result
+    return wrapper
 
 def define_shoot_data():
-    """Creates a list of paths to main data types
-       (Example - HDRI path, PANO path, etc)"""
+    """Creates a list of paths to main data types (Example - HDRI path, PANO path, etc)"""
     return [
         os.path.join(SHOOT_FOLDER, folder)
         for folder in os.listdir(SHOOT_FOLDER)
         if os.path.isdir(os.path.join(SHOOT_FOLDER, folder))
     ]
 
-
 def update_slate_list(folder):
     """Adds all unique slate ID's to a list """
     data_set_folder = os.listdir(folder)
+
     for item in data_set_folder:
         unique_slate = item.split("_")
+
         if unique_slate[0] not in SLATE_LIST:
             SLATE_LIST.append(unique_slate[0])
     
-
 def get_slates():
     """Walks through all shoot data folders"""
     for folder in define_shoot_data():
         update_slate_list(folder)
 
-
 def make_slate_folders():
     """Creates all slate folders """
     for slate in SLATE_LIST:
-        slate_path = SHOOT_FOLDER + "\\" + slate.upper() 
+        slate_path = os.path.join(SHOOT_FOLDER, slate.upper())
         os.mkdir(slate_path)    #Makes a slate folder 
 
-        
+@timer_function
 def sort_data():
     """Moves data to new file path SLATE>DATATYPE/DATA """
     moves = []
@@ -102,7 +116,7 @@ def sort_data():
 
     # Move folders from source to destination
     for src, dst in moves:
-        # --- CHANGE: only create parent directories ---
+        # CHANGE: only create parent directories
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.move(src, dst)
 
@@ -114,41 +128,40 @@ def sort_data():
         
 #*********************************************************************#
 # EXECUTE
-#*********************************************************************#
-
 get_slates() # Identify all slates
 make_slate_folders() # Create all slates
 sort_data() # Move data to new path
 
 #*********************************************************************#
-#Create report file ?
-#*********************************************************************#
-
+# Create report file ?
 answer = input("Would you like to generate a YAML report (Y/N): ").strip().lower()
 
 if answer == "y":
-    try:
-        generate_report.generate_report(SHOOT_FOLDER)
-    except ModuleNotFoundError:
-        print("Error: generate_report.py not found or PyYAML not installed.")
+    print("Generating report...")
+    generate_report.generate_report(SHOOT_FOLDER)
+    print("Report generation finished.")
 
 #*********************************************************************#
-#Rename folder to "_sorted", marking it ready for ingestion
-#*********************************************************************#
+# Rename folder to "_sorted", marking it ready for ingestion
 
-rename = True #Users can set this to False if they don't want renaming to happen
-suffix = "_sorted"
-
-if rename:
+if rename_shoot_folder:
     parent_folder = os.path.dirname(SHOOT_FOLDER)
-    new_shoot_name = os.path.basename(SHOOT_FOLDER) + suffix
+    original_name = os.path.basename(SHOOT_FOLDER)
+
+    # Build new name using prefix + original + suffix
+    new_shoot_name = f"{rename_prefix}{original_name}{rename_suffix}"
     new_shoot_path = os.path.join(parent_folder, new_shoot_name)
 
-    if not os.path.exists(new_shoot_path):
+    # Prevent renaming if already renamed
+    if original_name == new_shoot_name:
+        print("Folder name unchanged (prefix/suffix result identical).")
+
+    elif not os.path.exists(new_shoot_path):
         os.rename(SHOOT_FOLDER, new_shoot_path)
         print(f"Folder renamed to: {new_shoot_path}")
+
     else:
-        print(f"Folder already has _sorted: {new_shoot_path}")
+        print(f"Cannot rename. Destination already exists: {new_shoot_path}")
 
 print("\nProcessing complete. Press Enter to exit.")
-input()  #Keeps terminal open until user presses Enter
+input()  # Keeps terminal open until user presses Enter
