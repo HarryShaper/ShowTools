@@ -9,14 +9,20 @@ author      Harry Shaper <harryshaper@gmail.com>
 *************************************************'''
 
 import os
-import shutil
 import sys
+import shutil
 import yaml
 import time
 
 from functools import wraps
 
 import generate_report
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(SCRIPT_DIR, "FileSplitter"))
+
+# Import the function from file_splitter.py
+from file_splitter import file_split
 
 #*********************************************************************
 # DYNAMICALLY FETCH SELECTED FOLDER - For Right-Click / Send To
@@ -42,6 +48,8 @@ with open ("user_settings.yaml","r") as f:
 rename_shoot_folder = config.get("RENAME_SHOOT_FOLDER", True) 
 rename_suffix = config.get("RENAME_SUFFIX", "_sorted")
 rename_prefix = config.get("RENAME_PREFIX", "")
+
+subfolder_check = config.get("SUBFOLDER_BY_FORMAT", False)
 
 #*********************************************************************   
 # FUNCTIONS       
@@ -125,6 +133,19 @@ def sort_data():
         if os.path.exists(folder) and not os.listdir(folder):
             os.rmdir(folder)
 
+    if subfolder_check:
+        import subprocess
+
+        for _, dst in moves:
+            if os.path.isdir(dst):
+                # Only run if folder contains files
+                if any(os.path.isfile(os.path.join(dst, f)) for f in os.listdir(dst)):
+                    subprocess.run([
+                        "python",
+                        os.path.join(os.path.dirname(__file__), "FileSplitter", "file_splitter.py"),
+                        dst
+                    ])
+
         
 #*********************************************************************#
 # EXECUTE
@@ -164,4 +185,4 @@ if rename_shoot_folder:
         print(f"Cannot rename. Destination already exists: {new_shoot_path}")
 
 print("\nProcessing complete. Press Enter to exit.")
-input()  # Keeps terminal open until user presses Enter
+#input()  # Keeps terminal open until user presses Enter

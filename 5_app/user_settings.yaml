@@ -1,11 +1,13 @@
 # USER SETTINGS
 
-PROJECT_ALIAS: "The Blue Oasis" #
+PROJECT_ALIAS: "The Blue Oasis" 
 UNIT: "SU" #(MU,2U,SU)
 SHOOT_DATE: 20250510 #(YYYY/MM/DD)
 
 RENAME_SHOOT_FOLDER: true #(true/false)
 RENAME_SUFFIX: "_sorted" #(_DETAIL)
 RENAME_PREFIX: "" #(DETAIL_)
+
+SUBFOLDER_BY_FORMAT: true #(true/false)
 
 USER: "Harry Shaper"
