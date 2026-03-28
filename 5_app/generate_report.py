@@ -1,50 +1,56 @@
 '''*************************************************
 content     generate_report
 
-version     0.0.1
-date   		02-02-2025
+version     0.0.2
+date        24-03-2026
 
 author      Harry Shaper <harryshaper@gmail.com>
 
 *************************************************'''
+
 import os
-import yaml
 import getpass
 
 from datetime import date, datetime
 
-#*********************************************************************
+
+# *********************************************************************
 # Create report
-def generate_report(shoot_path): 
-    """ Creates a nicely readable report detailing all of the captures from the day"""
+def generate_report(shoot_path, settings_data=None):
+    """Creates a nicely readable report detailing all of the captures from the day."""
 
-    # Load user settings
-    with open ("user_settings.yaml","r") as f:
-        config = yaml.safe_load(f) or {}
+    settings_data = settings_data or {}
 
-    project_alias = config.get("PROJECT_ALIAS", "CODENAME")
-    unit = config.get("UNIT","MU")
+    project_details = settings_data.get("project_details", {})
 
-    shoot_date_raw = config.get("SHOOT_DATE", date.today().strftime("%Y%m%d"))
-    shoot_date = datetime.strptime(str(shoot_date_raw), "%Y%m%d").date()
+    project_alias = project_details.get("project_name", "CODENAME") or "CODENAME"
+    unit = project_details.get("unit", "MU") or "MU"
 
-    user = config.get("USER",getpass.getuser())
+    shoot_date_raw = project_details.get("shoot_date", "")
+    if shoot_date_raw:
+        try:
+            shoot_date = datetime.strptime(str(shoot_date_raw), "%Y-%m-%d").date()
+        except ValueError:
+            shoot_date = date.today()
+    else:
+        shoot_date = date.today()
+
+    user = project_details.get("wrangler", "").strip() or getpass.getuser()
 
     # Get path variables
-    shoot_day = shoot_path.split("\\")[-1]
+    shoot_day = os.path.basename(shoot_path)
 
     slate_list = [
         item for item in os.listdir(shoot_path)
-        if os.path.isdir(os.path.join(shoot_path,item))
+        if os.path.isdir(os.path.join(shoot_path, item))
     ]
     setup_count = len(slate_list)
-    
+
     report_file_name = shoot_day + "_report.yaml"
     report_path = os.path.join(shoot_path, report_file_name)
 
-    #*********************************************************************#
+    # *********************************************************************#
     # Size checker
-
     def get_folder_size(folder_path):
         total_bytes = 0
         for root, dirs, files in os.walk(folder_path):
@@ -56,49 +62,37 @@ def generate_report(shoot_path):
     total_mb = total_bytes / (1024 * 1024)
     total_gb = total_mb / 1024
 
-    #*********************************************************************#
+    # *********************************************************************#
     # Date/Time & User details
-
     timestamp = datetime.now().strftime("%Y-%m-%d @ %H:%M")
 
-    
-    #*********************************************************************#
+    # *********************************************************************#
     # Create yaml and fill in details
-
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         # Header
-        f.write(f"{project_alias}:\n") # Project name
-        f.write(f"{unit} - {shoot_day}:\n")  # Unit & shoot day
-        f.write(f"DATE - {shoot_date}:\n") # Shoot date
-        f.write(f"  setup_count: {setup_count}\n")  # Indented nicely
-        f.write(f"  #------------------------------------------------#\n\n") # Line break
+        f.write(f"{project_alias}:\n")
+        f.write(f"{unit} - {shoot_day}:\n")
+        f.write(f"DATE - {shoot_date}:\n")
+        f.write(f"  setup_count: {setup_count}\n")
+        f.write(f"  #------------------------------------------------#\n\n")
 
         # Loop over all slates
         for slate in slate_list:
             slate_path = os.path.join(shoot_path, slate)
-            f.write(f"  Slate: {slate}:\n")  # Indented Slate heading
-            
+            f.write(f"  Slate: {slate}:\n")
+
             for datatype in os.listdir(slate_path):
                 datatype_path = os.path.join(slate_path, datatype)
-                
-                if os.path.isdir(datatype_path):  #Only count folders
+
+                if os.path.isdir(datatype_path):
                     datatype_count = len([
                         item for item in os.listdir(datatype_path)
                         if os.path.isdir(os.path.join(datatype_path, item))
                     ])
-                    f.write(f"    {datatype}: {datatype_count}\n")  #Extra indentation for datatype
-            
-            f.write("\n")  # Blank line after each slate
+                    f.write(f"    {datatype}: {datatype_count}\n")
 
-        # --- Total captured size at the bottom ---
+            f.write("\n")
+
         f.write(f"  Total captured size: {total_gb:.2f} GB ({total_mb:.1f} MB)\n")
         f.write(f"  Report generated by: {user}\n")
         f.write(f"  Report generated: {timestamp}\n")
-
-
-
-
-
-
-
-

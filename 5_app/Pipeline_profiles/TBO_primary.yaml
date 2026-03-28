@@ -1,0 +1,14 @@
+project_details:
+  project_name: The_Blue_Oasis
+  shoot_date: '2026-03-25'
+  wrangler: Harry
+  unit: 2nd Unit
+package_settings:
+  rename_package: true
+  remove: _dump
+  prefix: ''
+  suffix: _sorted
+  subfolder_images: true
+  generate_yaml: true
+  notify_by_email: true
+  flag_empty_folders: false

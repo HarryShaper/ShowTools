@@ -1,17 +1,6 @@
-'''*************************************************
-content     Slate Sorter
-
-version     0.0.2
-date        02-04-2025
-
-author      Harry Shaper <harryshaper@gmail.com>
-
-*************************************************'''
-
 import os
 import sys
 import shutil
-import yaml
 import time
 
 from functools import wraps
@@ -19,170 +8,252 @@ from functools import wraps
 import generate_report
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(SCRIPT_DIR, "FileSplitter"))
 
-# Import the function from file_splitter.py
-from file_splitter import file_split
+from FileSplitter.file_splitter import file_split
 
-#*********************************************************************
-# DYNAMICALLY FETCH SELECTED FOLDER - For Right-Click / Send To
-if len(sys.argv) < 2:
-    print("Usage: python sort_shoot.py <shoot_folder_path>")
-    sys.exit(1)
 
-SHOOT_FOLDER = sys.argv[1]
-
-if not os.path.isdir(SHOOT_FOLDER):
-    print(f"Error: '{SHOOT_FOLDER}' is not a valid folder.")
-    sys.exit(1)
-
-#*********************************************************************    
-# CONSTANTS
-SLATE_LIST = []
-
-#*********************************************************************
-# User settings / Config file
-with open ("user_settings.yaml","r") as f:
-    config = yaml.safe_load(f) or {}
-
-rename_shoot_folder = config.get("RENAME_SHOOT_FOLDER", True) 
-rename_suffix = config.get("RENAME_SUFFIX", "_sorted")
-rename_prefix = config.get("RENAME_PREFIX", "")
-
-subfolder_check = config.get("SUBFOLDER_BY_FORMAT", False)
-
-#*********************************************************************   
-# FUNCTIONS       
 def timer_function(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        print(f"{func.__name__} took {end_time - start_time:.4f} seconds.")
-        return result
-    return wrapper
+	@wraps(func)
+	def wrapper(*args, **kwargs):
+		start_time = time.time()
+		result = func(*args, **kwargs)
+		end_time = time.time()
+		print(f"{func.__name__} took {end_time - start_time:.4f} seconds.")
+		return result
+	return wrapper
 
-def define_shoot_data():
-    """Creates a list of paths to main data types (Example - HDRI path, PANO path, etc)"""
-    return [
-        os.path.join(SHOOT_FOLDER, folder)
-        for folder in os.listdir(SHOOT_FOLDER)
-        if os.path.isdir(os.path.join(SHOOT_FOLDER, folder))
-    ]
 
-def update_slate_list(folder):
-    """Adds all unique slate ID's to a list """
-    data_set_folder = os.listdir(folder)
+def define_shoot_data(shoot_folder):
+	return [
+		os.path.join(shoot_folder, folder)
+		for folder in os.listdir(shoot_folder)
+		if os.path.isdir(os.path.join(shoot_folder, folder))
+	]
 
-    for item in data_set_folder:
-        unique_slate = item.split("_")
 
-        if unique_slate[0] not in SLATE_LIST:
-            SLATE_LIST.append(unique_slate[0])
-    
-def get_slates():
-    """Walks through all shoot data folders"""
-    for folder in define_shoot_data():
-        update_slate_list(folder)
+def update_slate_list(folder, slate_list):
+	data_set_folder = os.listdir(folder)
 
-def make_slate_folders():
-    """Creates all slate folders """
-    for slate in SLATE_LIST:
-        slate_path = os.path.join(SHOOT_FOLDER, slate.upper())
-        os.mkdir(slate_path)    #Makes a slate folder 
+	for item in data_set_folder:
+		unique_slate = item.split("_")
+		if unique_slate[0] not in slate_list:
+			slate_list.append(unique_slate[0])
+
+
+def get_slates(shoot_folder):
+	slate_list = []
+
+	for folder in define_shoot_data(shoot_folder):
+		update_slate_list(folder, slate_list)
+
+	return slate_list
+
+
+def make_slate_folders(shoot_folder, slate_list):
+	for slate in slate_list:
+		slate_path = os.path.join(shoot_folder, slate.upper())
+		os.makedirs(slate_path, exist_ok=True)
+
+
+#*********************************************************************#
+# HELPERS
+def folder_contains_images(folder_path):
+	image_extensions = {
+		".jpg", ".jpeg", ".png", ".tif", ".tiff", ".exr",
+		".dng", ".cr2", ".cr3", ".nef", ".arw", ".raf"
+	}
+
+	if not os.path.isdir(folder_path):
+		return False
+
+	for root, dirs, files in os.walk(folder_path):
+		for file_name in files:
+			ext = os.path.splitext(file_name)[1].lower()
+			if ext in image_extensions:
+				return True
+
+	return False
+
+
+def find_empty_data_folders(shoot_folder):
+	empty_folders = []
+
+	for slate in os.listdir(shoot_folder):
+		slate_path = os.path.join(shoot_folder, slate)
+		if not os.path.isdir(slate_path):
+			continue
+
+		for data_type in os.listdir(slate_path):
+			data_type_path = os.path.join(slate_path, data_type)
+			if not os.path.isdir(data_type_path):
+				continue
+
+			for capture_folder in os.listdir(data_type_path):
+				capture_path = os.path.join(data_type_path, capture_folder)
+				if not os.path.isdir(capture_path):
+					continue
+
+				if not folder_contains_images(capture_path):
+					empty_folders.append(capture_path)
+
+	return empty_folders
+
+
+def tag_empty_folders(empty_folders):
+	renamed_paths = []
+
+	for folder_path in empty_folders:
+		parent = os.path.dirname(folder_path)
+		name = os.path.basename(folder_path)
+
+		if name.endswith("_MISSING"):
+			renamed_paths.append(folder_path)
+			continue
+
+		new_name = f"{name}_MISSING"
+		new_name = new_name.replace("__", "_").strip("_")
+		
+		new_path = os.path.join(parent, new_name)
+
+		if not os.path.exists(new_path):
+			os.rename(folder_path, new_path)
+			renamed_paths.append(new_path)
+		else:
+			renamed_paths.append(folder_path)
+
+	return renamed_paths
+
+
+#*********************************************************************#
+
 
 @timer_function
-def sort_data():
-    """Moves data to new file path SLATE>DATATYPE/DATA """
-    moves = []
-    source_folders = set(define_shoot_data())
+def sort_data(shoot_folder, subfolder_check=False):
+	moves = []
+	source_folders = set(define_shoot_data(shoot_folder))
 
-    # Scan through each shoot data type (HDRI / PANO / TEXTURE / etc)
-    for data_type_folder in define_shoot_data():
-        data_type = os.path.basename(data_type_folder)
+	for data_type_folder in define_shoot_data(shoot_folder):
+		data_type = os.path.basename(data_type_folder)
 
-        # Creates source path
-        for item in os.listdir(data_type_folder):
-            src_path = os.path.join(data_type_folder, item)
+		for item in os.listdir(data_type_folder):
+			src_path = os.path.join(data_type_folder, item)
 
-            # Only allows folders
-            if not os.path.isdir(src_path):
-                continue
+			if not os.path.isdir(src_path):
+				continue
 
-            slate = item.split("_")[0].upper()
+			slate = item.split("_")[0].upper()
 
-            # Creates destination path and structure
-            dst_path = os.path.join(
-                SHOOT_FOLDER,
-                slate,
-                data_type,
-                item  
-            )
+			dst_path = os.path.join(
+				shoot_folder,
+				slate,
+				data_type,
+				item
+			)
 
-            moves.append((src_path, dst_path))
+			moves.append((src_path, dst_path))
 
-    # Move folders from source to destination
-    for src, dst in moves:
-        # CHANGE: only create parent directories
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.move(src, dst)
+	for src, dst in moves:
+		os.makedirs(os.path.dirname(dst), exist_ok=True)
+		shutil.move(src, dst)
 
-    # Clear original folders
-    for folder in source_folders:
-        if os.path.exists(folder) and not os.listdir(folder):
-            os.rmdir(folder)
+	for folder in source_folders:
+		if os.path.exists(folder) and not os.listdir(folder):
+			os.rmdir(folder)
 
-    if subfolder_check:
-        import subprocess
+	if subfolder_check:
+		for _, dst in moves:
+			if os.path.isdir(dst):
+				if any(os.path.isfile(os.path.join(dst, f)) for f in os.listdir(dst)):
+					file_split(dst)
+					
 
-        for _, dst in moves:
-            if os.path.isdir(dst):
-                # Only run if folder contains files
-                if any(os.path.isfile(os.path.join(dst, f)) for f in os.listdir(dst)):
-                    subprocess.run([
-                        "python",
-                        os.path.join(os.path.dirname(__file__), "FileSplitter", "file_splitter.py"),
-                        dst
-                    ])
 
-        
-#*********************************************************************#
-# EXECUTE
-get_slates() # Identify all slates
-make_slate_folders() # Create all slates
-sort_data() # Move data to new path
+def rename_shoot_folder(shoot_folder, rename_remove="", rename_prefix="", rename_suffix=""):
+	parent_folder = os.path.dirname(shoot_folder)
+	original_name = os.path.basename(shoot_folder)
 
-#*********************************************************************#
-# Create report file ?
-answer = input("Would you like to generate a YAML report (Y/N): ").strip().lower()
+	# Remove requested text first
+	cleaned_name = original_name
+	if rename_remove:
+		cleaned_name = cleaned_name.replace(rename_remove, "")
 
-if answer == "y":
-    print("Generating report...")
-    generate_report.generate_report(SHOOT_FOLDER)
-    print("Report generation finished.")
+	# Optional small cleanup for repeated underscores
+	cleaned_name = cleaned_name.replace("__", "_").strip("_")
 
-#*********************************************************************#
-# Rename folder to "_sorted", marking it ready for ingestion
+	# Build new name using cleaned name
+	new_shoot_name = f"{rename_prefix}{cleaned_name}{rename_suffix}"
 
-if rename_shoot_folder:
-    parent_folder = os.path.dirname(SHOOT_FOLDER)
-    original_name = os.path.basename(SHOOT_FOLDER)
+	# Optional cleanup again after prefix/suffix
+	new_shoot_name = new_shoot_name.replace("__", "_").strip("_")
 
-    # Build new name using prefix + original + suffix
-    new_shoot_name = f"{rename_prefix}{original_name}{rename_suffix}"
-    new_shoot_path = os.path.join(parent_folder, new_shoot_name)
+	new_shoot_path = os.path.join(parent_folder, new_shoot_name)
 
-    # Prevent renaming if already renamed
-    if original_name == new_shoot_name:
-        print("Folder name unchanged (prefix/suffix result identical).")
+	if original_name == new_shoot_name:
+		print("Folder name unchanged (remove/prefix/suffix result identical).")
+		return shoot_folder
 
-    elif not os.path.exists(new_shoot_path):
-        os.rename(SHOOT_FOLDER, new_shoot_path)
-        print(f"Folder renamed to: {new_shoot_path}")
+	if os.path.exists(new_shoot_path):
+		print(f"Cannot rename. Destination already exists: {new_shoot_path}")
+		return shoot_folder
 
-    else:
-        print(f"Cannot rename. Destination already exists: {new_shoot_path}")
+	os.rename(shoot_folder, new_shoot_path)
+	print(f"Folder renamed to: {new_shoot_path}")
+	return new_shoot_path
 
-print("\nProcessing complete. Press Enter to exit.")
-#input()  # Keeps terminal open until user presses Enter
+
+def run_slate_sorter(shoot_folder, settings_data):
+	if not shoot_folder or not os.path.isdir(shoot_folder):
+		raise ValueError(f"'{shoot_folder}' is not a valid folder.")
+
+	package_settings = settings_data.get("package_settings", {})
+
+	subfolder_check = package_settings.get("subfolder_images", False)
+	generate_yaml = package_settings.get("generate_yaml", False)
+	flag_empty_folders = package_settings.get("flag_empty_folders", False)
+
+	slate_list = get_slates(shoot_folder)
+	make_slate_folders(shoot_folder, slate_list)
+	sort_data(shoot_folder, subfolder_check=subfolder_check)
+
+	empty_folders = []
+	if flag_empty_folders:
+		empty_folders = find_empty_data_folders(shoot_folder)
+
+	if generate_yaml:
+		print("Generating report...")
+		generate_report.generate_report(shoot_folder, settings_data)
+		print("Report generation finished.")
+
+	print("\nProcessing complete.")
+	return {
+		"final_path": shoot_folder,
+		"empty_folders": empty_folders
+	}
+
+
+def main():
+	if len(sys.argv) < 2:
+		print("Usage: python slate_sorter.py <shoot_folder_path>")
+		sys.exit(1)
+
+	shoot_folder = sys.argv[1]
+
+	settings_data = {
+		"package_settings": {
+			"rename_package": True,
+			"prefix": "",
+			"suffix": "_sorted",
+			"subfolder_images": False,
+			"generate_yaml": False,
+		}
+	}
+
+	try:
+		run_slate_sorter(shoot_folder, settings_data)
+	except Exception as error:
+		print(f"Error: {error}")
+		sys.exit(1)
+
+
+if __name__ == "__main__":
+	main()
