@@ -13,24 +13,35 @@ import sys
 import webbrowser
 import yaml
 import urllib.parse
-import resources_rc
+from pathlib import Path
 
 from Qt import QtWidgets, QtGui, QtCore, QtCompat
-from PySide6 import QtWidgets, QtGui, QtCore
-
-from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QFileDialog
-
-from slate_sorter import run_slate_sorter
+from Qt.QtCore import QDate
+from Qt.QtWidgets import QFileDialog
 
 
-# ******************************************************************************
-# CONSTANTS
-TITLE = os.path.splitext(os.path.basename(__file__))[0]
-CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
-ICON_PATH = os.path.join(CURRENT_PATH, "Icons", "{}.png")
-PIPELINE_PROFILES_PATH = os.path.join(CURRENT_PATH, "Pipeline_profiles")
+try:
+	from .resources import resources_rc
+	from .slate_sorter import run_slate_sorter, tag_empty_folders, rename_shoot_folder
+except ImportError:
+	from resources import resources_rc
+	from slate_sorter import run_slate_sorter, tag_empty_folders, rename_shoot_folder
+
+
+TITLE = Path(__file__).stem
+CURRENT_PATH = Path(__file__).resolve().parent
+ROOT_DIR = CURRENT_PATH.parent
+
+ICONS_DIR = ROOT_DIR / "assets" / "Icons"
+PIPELINE_PROFILES_PATH = ROOT_DIR / "config" / "Pipeline_profiles"
+SHOW_DEFAULTS_DIR = ROOT_DIR / "config" / "Show_defaults"
+UI_PATH = CURRENT_PATH / "ui" / "ShowTools.ui"
+
 SELECTED_DEFAULT_SETTINGS = "show_defaults_highlander_2U.yaml"
+
+
+def icon_path(name):
+	return str(ICONS_DIR / f"{name}.png")
 
 
 # ******************************************************************************
@@ -42,7 +53,7 @@ class CustomMessageDialog(QtWidgets.QDialog):
 		super().__init__(parent)
 
 		self.setWindowTitle(title)
-		self.setWindowIcon(QtGui.QIcon(ICON_PATH.format("logo")))
+		self.setWindowIcon(QtGui.QIcon(icon_path("logo")))
 		self.setModal(True)
 		self.setFixedSize(430, 165)
 
@@ -93,12 +104,12 @@ class CustomMessageDialog(QtWidgets.QDialog):
 			}
 		""")
 
-		#SIZING
+		# SIZING
 		main_layout = QtWidgets.QVBoxLayout(self)
 		main_layout.setContentsMargins(24, 18, 24, 18)
 		main_layout.setSpacing(8)
 
-		#HEADINGS
+		# HEADINGS
 		self.heading_label = QtWidgets.QLabel(heading)
 		self.heading_label.setObjectName("headingLabel")
 		self.heading_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
@@ -136,7 +147,7 @@ class EmptyFoldersDialog(QtWidgets.QDialog):
 		super().__init__(parent)
 
 		self.setWindowTitle("Empty Folders Detected")
-		self.setWindowIcon(QtGui.QIcon(ICON_PATH.format("logo")))
+		self.setWindowIcon(QtGui.QIcon(icon_path("logo")))
 		self.setModal(True)
 		self.setFixedSize(520, 320)
 
@@ -211,39 +222,39 @@ class EmptyFoldersDialog(QtWidgets.QDialog):
 		layout.addLayout(button_row)
 
 
-#CLASS - ShowTools
+# CLASS - ShowTools
 class ShowTools:
 
 	def __init__(self):
-		path_ui = os.path.join(CURRENT_PATH, TITLE + ".ui")
-		self.wgShowTools = QtCompat.loadUi(path_ui)
-		
+		self.wgShowTools = QtCompat.loadUi(str(UI_PATH))
+
 		# TABS
 		self.wgShowTools.btn_mainSettings.clicked.connect(self.show_main_settings)
 		self.wgShowTools.btn_renameSettings.clicked.connect(self.show_rename_settings)
 
 		# WINDOW ICON
-		self.wgShowTools.setWindowIcon(QtGui.QIcon(ICON_PATH.format("logo")))
+		self.wgShowTools.setWindowIcon(QtGui.QIcon(icon_path("logo")))
 
 		# LINK ICONS
-		self.wgShowTools.btn_gmail.setIcon(QtGui.QIcon(ICON_PATH.format("gmail_icon")))
-		self.wgShowTools.btn_github.setIcon(QtGui.QIcon(ICON_PATH.format("github_icon")))
-		self.wgShowTools.btn_linkedin.setIcon(QtGui.QIcon(ICON_PATH.format("linkedin_icon")))
-		self.wgShowTools.btn_youtube.setIcon(QtGui.QIcon(ICON_PATH.format("youtube_icon")))
-		self.wgShowTools.btn_website.setIcon(QtGui.QIcon(ICON_PATH.format("logo")))
+		self.wgShowTools.btn_gmail.setIcon(QtGui.QIcon(icon_path("gmail_icon")))
+		self.wgShowTools.btn_github.setIcon(QtGui.QIcon(icon_path("github_icon")))
+		self.wgShowTools.btn_linkedin.setIcon(QtGui.QIcon(icon_path("linkedin_icon")))
+		self.wgShowTools.btn_youtube.setIcon(QtGui.QIcon(icon_path("youtube_icon")))
+		self.wgShowTools.btn_website.setIcon(QtGui.QIcon(icon_path("logo")))
 
 		# TOOL ICONS
-		self.wgShowTools.btn_browseConfig.setIcon(QtGui.QIcon(ICON_PATH.format("browse_file_icon")))
-		self.wgShowTools.btn_browseTargetFolder.setIcon(QtGui.QIcon(ICON_PATH.format("browse_file_icon")))
+		self.wgShowTools.btn_browseConfig.setIcon(QtGui.QIcon(icon_path("browse_file_icon")))
+		self.wgShowTools.btn_browseTargetFolder.setIcon(QtGui.QIcon(icon_path("browse_file_icon")))
 
 		# SIGNALS
-		#-------Action Buttons
+		# ------- Action Buttons
 		self.wgShowTools.btn_clearSettings.clicked.connect(self.press_clearSettings)
 		self.wgShowTools.btn_browseConfig.clicked.connect(self.press_browseConfig)
 		self.wgShowTools.btn_saveSettings.clicked.connect(self.press_saveSettings)
 		self.wgShowTools.btn_browseTargetFolder.clicked.connect(self.press_browseTargetFolder)
 		self.wgShowTools.btn_export.clicked.connect(self.press_export)
-		# -------Links
+
+		# ------- Links
 		self.wgShowTools.btn_gmail.clicked.connect(self.press_loadGmail)
 		self.wgShowTools.btn_github.clicked.connect(self.press_loadGithub)
 		self.wgShowTools.btn_linkedin.clicked.connect(self.press_loadLinkedin)
@@ -253,10 +264,10 @@ class ShowTools:
 		# SETUP
 		self.wgShowTools.input_shootDate.setDate(QDate.currentDate())
 		self.wgShowTools.input_configFile.setPlaceholderText("Select sorting template...")
-		self.update_target_folder_state("") #COLOR STATE SET
-		self.show_main_settings() #SET ON MAIN PAGE
+		self.update_target_folder_state("")
+		self.show_main_settings()
 
-		self.load_show_defaults() #LOADS SHOW CONFIG
+		self.load_show_defaults()
 
 		# GET PATH FROM SYS.ARGV - RIGHT CLICK, SEND TO
 		if len(sys.argv) > 1:
@@ -270,12 +281,12 @@ class ShowTools:
 
 		# SET INITIAL STATE
 		self.update_rename_fields_state()
-		
+
 		# FIND PIPELINE PROFILES
 		os.makedirs(PIPELINE_PROFILES_PATH, exist_ok=True)
 
 	# ************************************************************************************************
-	#TABS
+	# TABS
 	def show_main_settings(self):
 		self.wgShowTools.stackedWidget.setCurrentIndex(0)
 		self.update_tab_styles(active="main")
@@ -314,7 +325,7 @@ class ShowTools:
 			self.wgShowTools.btn_renameSettings.setStyleSheet(active_style)
 
 	# *********************************************************************#
-	#HELPERS
+	# HELPERS
 	def open_link(self, url):
 		preferred_browser = "default"
 
@@ -343,11 +354,7 @@ class ShowTools:
 
 		webbrowser.open(url)
 
-
 	def open_email_client(self, subject, body, to_list=None, cc_list=None):
-		import urllib.parse
-		import webbrowser
-
 		to = ",".join(to_list or [])
 		cc = ",".join(cc_list or [])
 
@@ -356,7 +363,6 @@ class ShowTools:
 		if hasattr(self, "browser_defaults"):
 			preferred_browser = self.browser_defaults.get("preferred_browser", "default").lower()
 
-		# --------------------------------------------------
 		# CASE 1: Use system default email client (mailto)
 		if preferred_browser == "default":
 			params = {
@@ -373,7 +379,6 @@ class ShowTools:
 			webbrowser.open(url)
 			return
 
-		# --------------------------------------------------
 		# CASE 2: Use Gmail in browser
 		params = {
 			"view": "cm",
@@ -388,7 +393,6 @@ class ShowTools:
 		query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
 		url = f"https://mail.google.com/mail/?{query}"
 
-		#Use your existing browser routing
 		self.open_link(url)
 
 	def format_email_text(self, text, context):
@@ -398,13 +402,13 @@ class ShowTools:
 		try:
 			return text.format(**context)
 		except Exception:
-			return text	    
-			   
+			return text
 
 	def load_show_defaults(self):
-		defaults_path = os.path.join(CURRENT_PATH,"Show_defaults", SELECTED_DEFAULT_SETTINGS)
+		data = {}
+		defaults_path = SHOW_DEFAULTS_DIR / SELECTED_DEFAULT_SETTINGS
 
-		if not os.path.exists(defaults_path):
+		if not defaults_path.exists():
 			return
 
 		try:
@@ -420,9 +424,7 @@ class ShowTools:
 			if not show_profile.get("auto_load_defaults", False):
 				return
 
-			# ------------------------
 			# Project Defaults
-			# ------------------------
 			if show_profile.get("apply_project_name_on_startup", True):
 				if not self.wgShowTools.input_projectName.text().strip():
 					self.wgShowTools.input_projectName.setText(
@@ -435,9 +437,7 @@ class ShowTools:
 				if idx >= 0:
 					self.wgShowTools.input_unit.setCurrentIndex(idx)
 
-			# ------------------------
 			# Wrangler Defaults
-			# ------------------------
 			if show_profile.get("apply_wranglers_on_startup", True):
 				wranglers = wrangler_defaults.get("options", [])
 
@@ -452,23 +452,17 @@ class ShowTools:
 					if idx >= 0:
 						self.wgShowTools.input_wrangler.setCurrentIndex(idx)
 
-			# ------------------------
-			# Email Defaults (light integration for now)
-			# ------------------------
+			# Email Defaults
 			if show_profile.get("apply_email_defaults_on_startup", False):
 				enabled = email_defaults.get("enabled_by_default", False)
 				self.wgShowTools.chk_notifyByEmail.setChecked(enabled)
 
-			# Store email defaults for later use
 			self.email_defaults = email_defaults
 
 		except Exception as error:
 			print(f"Failed to load show defaults: {error}")
 
-		#BROWSER DEFAULTS
-		browser_defaults = data.get("browser_defaults", {})
-		self.browser_defaults = browser_defaults
-
+		self.browser_defaults = data.get("browser_defaults", {})
 
 	def update_rename_fields_state(self):
 		enabled = self.wgShowTools.chk_renamePackage.isChecked()
@@ -478,7 +472,7 @@ class ShowTools:
 		self.wgShowTools.input_prefix.setEnabled(enabled)
 		self.wgShowTools.input_suffix.setEnabled(enabled)
 
-		# Labels (manual color control)
+		# Labels
 		active_color = "#ffffff"
 		disabled_color = "#7a7a7a"
 
@@ -488,12 +482,10 @@ class ShowTools:
 		self.wgShowTools.label_prefix.setStyleSheet(f"color: {color};")
 		self.wgShowTools.label_suffix.setStyleSheet(f"color: {color};")
 
-		# Clear rename fields when checkbox is turned off
 		if not enabled:
 			self.wgShowTools.input_remove.clear()
 			self.wgShowTools.input_prefix.clear()
 			self.wgShowTools.input_suffix.clear()
-
 
 	def update_target_folder_state(self, folder_path=""):
 		if folder_path and os.path.isdir(folder_path):
@@ -506,7 +498,6 @@ class ShowTools:
 		widget.style().unpolish(widget)
 		widget.style().polish(widget)
 
-
 	def set_target_folder(self, folder_path):
 		self.wgShowTools.input_targetFolder.setText(folder_path if folder_path else "")
 		self.wgShowTools.input_targetFolder.setToolTip(folder_path if folder_path else "")
@@ -515,7 +506,6 @@ class ShowTools:
 	def confirm_empty_folders(self, empty_folders):
 		dialog = EmptyFoldersDialog(empty_folders, parent=self.wgShowTools)
 		return dialog.exec() == QtWidgets.QDialog.Accepted
-
 
 	def show_message(self, title, heading, detail="", sub_detail=""):
 		dialog = CustomMessageDialog(
@@ -622,19 +612,16 @@ class ShowTools:
 			)
 
 	# *********************************************************************#
-	#PRESS
+	# PRESS
 	def press_clearSettings(self):
-		# Reset config field properly
 		self.wgShowTools.input_configFile.clear()
 		self.wgShowTools.input_configFile.setPlaceholderText("Select sorting template...")
 
-		# Project Details
 		self.wgShowTools.input_projectName.setText("")
 		self.wgShowTools.input_wrangler.setCurrentIndex(0)
 		self.wgShowTools.input_unit.setCurrentIndex(0)
 		self.wgShowTools.input_shootDate.setDate(QDate.currentDate())
 
-		# Package Settings
 		self.wgShowTools.chk_renamePackage.setChecked(False)
 		self.wgShowTools.input_remove.setText("")
 		self.wgShowTools.input_prefix.setText("")
@@ -644,14 +631,13 @@ class ShowTools:
 		self.wgShowTools.chk_notifyByEmail.setChecked(False)
 		self.wgShowTools.chk_flagEmptyFolders.setChecked(False)
 
-
 	def press_saveSettings(self):
 		settings_data = self.get_settings_data()
 
 		file_path, _ = QFileDialog.getSaveFileName(
 			self.wgShowTools,
 			"Save Settings Profile",
-			PIPELINE_PROFILES_PATH,
+			str(PIPELINE_PROFILES_PATH),
 			"YAML Files (*.yaml *.yml)"
 		)
 
@@ -686,10 +672,7 @@ class ShowTools:
 				str(error)
 			)
 
-
 	def press_export(self):
-		from slate_sorter import run_slate_sorter, tag_empty_folders, rename_shoot_folder
-
 		folder_path = self.wgShowTools.input_targetFolder.text().strip()
 
 		if not folder_path or not os.path.isdir(folder_path):
@@ -742,9 +725,6 @@ class ShowTools:
 
 			self.set_target_folder(final_path)
 
-			# --------------------------------------------------
-			# Build email template context from final export path
-			# --------------------------------------------------
 			package_name = os.path.basename(final_path)
 			clean_package_name = package_name
 
@@ -778,7 +758,6 @@ class ShowTools:
 					context
 				)
 
-				# Stored for later email sending integration
 				self.email_subject = email_subject
 				self.email_body = email_body
 				self.email_to = self.email_defaults.get("to", [])
@@ -812,13 +791,14 @@ class ShowTools:
 				"Could not complete export.",
 				str(error)
 			)
-	#*********************************************************************#
-	# PRESS BROWSE FILES		
+
+	# *********************************************************************#
+	# PRESS BROWSE FILES
 	def press_browseConfig(self):
 		file_path, _ = QFileDialog.getOpenFileName(
 			self.wgShowTools,
 			"Select Pipeline Config",
-			PIPELINE_PROFILES_PATH,
+			str(PIPELINE_PROFILES_PATH),
 			"YAML Files (*.yaml *.yml);;All Files (*)"
 		)
 
@@ -837,7 +817,7 @@ class ShowTools:
 		if folder:
 			self.set_target_folder(folder)
 
-	#*********************************************************************#
+	# *********************************************************************#
 	# PRESS LINKS
 	def press_loadGmail(self):
 		email = "harryshaper@gmail.com"
@@ -853,23 +833,19 @@ class ShowTools:
 
 		self.open_link(url)
 
-
 	def press_loadGithub(self):
 		self.open_link("https://github.com/HarryShaper")
-
 
 	def press_loadLinkedin(self):
 		self.open_link("https://www.linkedin.com/in/harry-shaper-vfx/")
 
-
 	def press_loadYoutube(self):
 		self.open_link("https://www.youtube.com/")
-
 
 	def press_loadWebsite(self):
 		self.open_link("https://www.shapervfx.com/")
 
-		
+
 # *********************************************************************#
 # START UI
 if __name__ == "__main__":

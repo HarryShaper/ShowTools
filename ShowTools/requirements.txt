@@ -1,0 +1,3 @@
+PySide6
+Qt.py
+PyYAML

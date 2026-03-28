@@ -2,7 +2,7 @@
 content     slate_sorter
 
 version     1.0.0
-date   		28-03-2026
+date        28-03-2026
 
 author      Harry Shaper <harryshaper@gmail.com>
 
@@ -15,11 +15,15 @@ import time
 
 from functools import wraps
 
-import generate_report
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-from FileSplitter.file_splitter import file_split
+# Supports both:
+# 1. python -m showtools.ShowTools
+# 2. direct script execution during testing
+try:
+	from . import generate_report
+	from .tools.FileSplitter.file_splitter import file_split
+except ImportError:
+	import generate_report
+	from tools.FileSplitter.file_splitter import file_split
 
 
 def timer_function(func):
@@ -65,7 +69,7 @@ def make_slate_folders(shoot_folder, slate_list):
 		os.makedirs(slate_path, exist_ok=True)
 
 
-#*********************************************************************#
+# *********************************************************************#
 # HELPERS
 def folder_contains_images(folder_path):
 	image_extensions = {
@@ -122,7 +126,7 @@ def tag_empty_folders(empty_folders):
 
 		new_name = f"{name}_MISSING"
 		new_name = new_name.replace("__", "_").strip("_")
-		
+
 		new_path = os.path.join(parent, new_name)
 
 		if not os.path.exists(new_path):
@@ -134,9 +138,7 @@ def tag_empty_folders(empty_folders):
 	return renamed_paths
 
 
-#*********************************************************************#
-
-
+# *********************************************************************#
 @timer_function
 def sort_data(shoot_folder, subfolder_check=False):
 	moves = []
@@ -175,25 +177,19 @@ def sort_data(shoot_folder, subfolder_check=False):
 			if os.path.isdir(dst):
 				if any(os.path.isfile(os.path.join(dst, f)) for f in os.listdir(dst)):
 					file_split(dst)
-					
 
 
 def rename_shoot_folder(shoot_folder, rename_remove="", rename_prefix="", rename_suffix=""):
 	parent_folder = os.path.dirname(shoot_folder)
 	original_name = os.path.basename(shoot_folder)
 
-	# Remove requested text first
 	cleaned_name = original_name
 	if rename_remove:
 		cleaned_name = cleaned_name.replace(rename_remove, "")
 
-	# Optional small cleanup for repeated underscores
 	cleaned_name = cleaned_name.replace("__", "_").strip("_")
 
-	# Build new name using cleaned name
 	new_shoot_name = f"{rename_prefix}{cleaned_name}{rename_suffix}"
-
-	# Optional cleanup again after prefix/suffix
 	new_shoot_name = new_shoot_name.replace("__", "_").strip("_")
 
 	new_shoot_path = os.path.join(parent_folder, new_shoot_name)
