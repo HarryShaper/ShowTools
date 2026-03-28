@@ -16,16 +16,16 @@ import urllib.parse
 import resources_rc
 
 from Qt import QtWidgets, QtGui, QtCore, QtCompat
-from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QFileDialog
 from PySide6 import QtWidgets, QtGui, QtCore
 
+from PySide6.QtCore import QDate
+from PySide6.QtWidgets import QFileDialog
 
 from slate_sorter import run_slate_sorter
 
 
-# *********************************************************************#
-# VARIABLES
+# ******************************************************************************
+# CONSTANTS
 TITLE = os.path.splitext(os.path.basename(__file__))[0]
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(CURRENT_PATH, "Icons", "{}.png")
@@ -33,8 +33,10 @@ PIPELINE_PROFILES_PATH = os.path.join(CURRENT_PATH, "Pipeline_profiles")
 SELECTED_DEFAULT_SETTINGS = "show_defaults_highlander_2U.yaml"
 
 
-# *********************************************************************#
-# CLASS- CUSTOM DIALOG
+# ******************************************************************************
+# CLASSES
+
+# CLASS - CUSTOM DIALOG
 class CustomMessageDialog(QtWidgets.QDialog):
 	def __init__(self, title, heading, detail="", sub_detail="", parent=None):
 		super().__init__(parent)
@@ -91,10 +93,12 @@ class CustomMessageDialog(QtWidgets.QDialog):
 			}
 		""")
 
+		#SIZING
 		main_layout = QtWidgets.QVBoxLayout(self)
 		main_layout.setContentsMargins(24, 18, 24, 18)
 		main_layout.setSpacing(8)
 
+		#HEADINGS
 		self.heading_label = QtWidgets.QLabel(heading)
 		self.heading_label.setObjectName("headingLabel")
 		self.heading_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
@@ -125,7 +129,7 @@ class CustomMessageDialog(QtWidgets.QDialog):
 
 		main_layout.addLayout(button_layout)
 
-#*********************************************************************#
+
 # CLASS - EMPTY FOLDERS DIALOGUE
 class EmptyFoldersDialog(QtWidgets.QDialog):
 	def __init__(self, empty_folders, parent=None):
@@ -207,8 +211,7 @@ class EmptyFoldersDialog(QtWidgets.QDialog):
 		layout.addLayout(button_row)
 
 
-# *********************************************************************#
-# CLASS - ShowTools
+#CLASS - ShowTools
 class ShowTools:
 
 	def __init__(self):
@@ -271,8 +274,8 @@ class ShowTools:
 		# FIND PIPELINE PROFILES
 		os.makedirs(PIPELINE_PROFILES_PATH, exist_ok=True)
 
-	# *********************************************************************#
-	# TABS
+	# ************************************************************************************************
+	#TABS
 	def show_main_settings(self):
 		self.wgShowTools.stackedWidget.setCurrentIndex(0)
 		self.update_tab_styles(active="main")
@@ -311,7 +314,7 @@ class ShowTools:
 			self.wgShowTools.btn_renameSettings.setStyleSheet(active_style)
 
 	# *********************************************************************#
-	# HELPERS
+	#HELPERS
 	def open_link(self, url):
 		preferred_browser = "default"
 
@@ -355,7 +358,6 @@ class ShowTools:
 
 		# --------------------------------------------------
 		# CASE 1: Use system default email client (mailto)
-		# --------------------------------------------------
 		if preferred_browser == "default":
 			params = {
 				"subject": subject,
@@ -373,7 +375,6 @@ class ShowTools:
 
 		# --------------------------------------------------
 		# CASE 2: Use Gmail in browser
-		# --------------------------------------------------
 		params = {
 			"view": "cm",
 			"to": to,
@@ -387,7 +388,7 @@ class ShowTools:
 		query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
 		url = f"https://mail.google.com/mail/?{query}"
 
-		# Use your existing browser routing
+		#Use your existing browser routing
 		self.open_link(url)
 
 	def format_email_text(self, text, context):
@@ -621,7 +622,7 @@ class ShowTools:
 			)
 
 	# *********************************************************************#
-	# PRESS
+	#PRESS
 	def press_clearSettings(self):
 		# Reset config field properly
 		self.wgShowTools.input_configFile.clear()

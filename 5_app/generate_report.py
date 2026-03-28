@@ -1,8 +1,8 @@
 '''*************************************************
 content     generate_report
 
-version     0.0.2
-date        24-03-2026
+version     1.0.0
+date        28-03-2026
 
 author      Harry Shaper <harryshaper@gmail.com>
 

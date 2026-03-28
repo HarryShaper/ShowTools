@@ -1,3 +1,13 @@
+'''*************************************************
+content     slate_sorter
+
+version     1.0.0
+date   		28-03-2026
+
+author      Harry Shaper <harryshaper@gmail.com>
+
+*************************************************'''
+
 import os
 import sys
 import shutil
