@@ -88,6 +88,13 @@ python -m showtools.ShowTools
 
 ```bash
 chmod +x scripts/launch_macOS.command
+
+### macOS Security Notice
+
+If macOS blocks the launcher:
+
+- Right-click → Open
+- Or go to System Settings → Privacy & Security → Allow Anyway
 ```
 
 #### Then launch
