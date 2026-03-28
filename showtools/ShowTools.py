@@ -849,6 +849,6 @@ class ShowTools:
 # *********************************************************************#
 # START UI
 if __name__ == "__main__":
-	app = QtWidgets.QApplication(sys.argv)
-	initialize_app = ShowTools()
-	app.exec()
+    app = QtWidgets.QApplication(sys.argv)
+    initialize_app = ShowTools()
+    app.exec()

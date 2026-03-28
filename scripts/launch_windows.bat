@@ -1,12 +1,12 @@
-@echo off
-setlocal
+@echo on
 
-set "SCRIPT_DIR=%~dp0"
-set "ROOT_DIR=%SCRIPT_DIR%.."
+cd /d "%~dp0.."
 
-cd /d "%ROOT_DIR%"
+echo Running from:
+cd
 
-py "%ROOT_DIR%\showtools\ShowTools.py" %*
+python -m showtools.ShowTools
 
-endlocal
+echo.
+echo Exit code: %errorlevel%
 pause
