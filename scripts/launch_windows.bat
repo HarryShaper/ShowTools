@@ -1,6 +1,7 @@
-@echo on
+@echo off
+setlocal
 
 cd /d "%~dp0.."
-python -m showtools.ShowTools
+python -m showtools.ShowTools "%~1"
 
-pause
+endlocal
