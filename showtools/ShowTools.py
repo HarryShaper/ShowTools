@@ -399,6 +399,48 @@ class ShowTools:
 	def __init__(self):
 		self.wgShowTools = QtCompat.loadUi(str(UI_PATH))
 
+		import sys
+
+		if sys.platform == "darwin":
+			self.wgShowTools.txtInstructions.setHtml("""
+			<html>
+			<head>
+			<style>
+			body {
+				font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+				font-size: 12px;
+				line-height: 1.35;
+				color: #dddddd;
+			}
+			p {
+				margin-top: 0px;
+				margin-bottom: 2px;
+			}
+			h3 {
+				color: #f0b000;
+				margin-top: 10px;
+				margin-bottom: 4px;
+				font-size: 14px;
+				font-weight: 600;
+			}
+			</style>
+			</head>
+			<body>
+
+			<h3>PIPELINE PROFILE</h3>
+			<p>This is where you can load in preset sorting profiles, that are either show specific or vendor specific. This will either accept YAML or JSON files and allow pre-determined sorting and renaming conventions.</p>
+
+			<h3>PROJECT DETAILS</h3>
+			<p>This will be the main details of the data package you are sorting. This allows for easy ingestion into your pipeline.</p>
+
+			<h3>PACKAGE SETTINGS</h3>
+			<p>Package Settings allows users to apply changes to the data package and enable useful features such as generating YAML reports or emailing others to notify them of the package.</p>
+
+			</body>
+			</html>
+			""")
+
+
 		# TABS
 		self.wgShowTools.btn_mainSettings.clicked.connect(self.show_main_settings)
 		self.wgShowTools.btn_renameSettings.clicked.connect(self.show_rename_settings)
@@ -500,6 +542,9 @@ class ShowTools:
 			padding-left: 26px;
 		""")
 
+		#macOS style updater
+		self.apply_macos_ui_fixes()
+
 		# DATE
 		self.wgShowTools.input_shootDate.setDate(QDate.currentDate())
 		# PLACEHOLDER TEXT
@@ -569,6 +614,35 @@ class ShowTools:
 	# *********************************************************************#
 	#HELPERS
 	#REVERSE MANIFEST
+
+	def apply_macos_ui_fixes(self):
+		import sys
+		if sys.platform != "darwin":
+			return
+
+		# Remove visible frame around save/clear buttons container
+		if hasattr(self.wgShowTools, "frame_settingsButtons"):
+			self.wgShowTools.frame_settingsButtons.setStyleSheet("""
+				QFrame#frame_settingsButtons {
+					border: none;
+					background-color: transparent;
+				}
+			""")
+
+		# Slightly larger instruction text on macOS
+		instruction_labels = [
+			"label_instructionPipelineProfile",
+			"label_instructionProjectDetails",
+			"label_instructionPackageSettings",
+		]
+
+		for name in instruction_labels:
+			if hasattr(self.wgShowTools, name):
+				label = getattr(self.wgShowTools, name)
+				font = label.font()
+				font.setPointSize(font.pointSize() + 2)
+				label.setFont(font)
+
 	def get_revert_manifest_path(self, folder_path):
 		if not folder_path:
 			return None
