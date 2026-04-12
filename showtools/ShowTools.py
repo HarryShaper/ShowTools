@@ -10,22 +10,30 @@ author      Harry Shaper <harryshaper@gmail.com>
 
 import os
 import sys
+import shutil
 import webbrowser
 import yaml
 import urllib.parse
-from pathlib import Path
 
+from datetime import datetime
+from pathlib import Path
 from Qt import QtWidgets, QtGui, QtCore, QtCompat
 from Qt.QtCore import QDate
 from Qt.QtWidgets import QFileDialog
-
+from Qt.QtGui import QStandardItemModel, QStandardItem
+from PIL import Image, ExifTags
 
 try:
 	from .resources import resources_rc
 	from .slate_sorter import run_slate_sorter, tag_empty_folders, rename_shoot_folder
+	from .asset_sorter import run_asset_sorter
+	from . import generate_report
 except ImportError:
 	from resources import resources_rc
 	from slate_sorter import run_slate_sorter, tag_empty_folders, rename_shoot_folder
+	from .asset_sorter import run_asset_sorter
+	import generate_report
+	
 
 
 TITLE = Path(__file__).stem
@@ -37,7 +45,7 @@ PIPELINE_PROFILES_PATH = ROOT_DIR / "config" / "Pipeline_profiles"
 SHOW_DEFAULTS_DIR = ROOT_DIR / "config" / "Show_defaults"
 UI_PATH = CURRENT_PATH / "ui" / "ShowTools.ui"
 
-SELECTED_DEFAULT_SETTINGS = "show_defaults_highlander_2U.yaml"
+SELECTED_DEFAULT_SETTINGS = "show_defaults_badlands_2U.yaml" # CHANGE THIS <<-
 
 
 def icon_path(name):
@@ -47,7 +55,7 @@ def icon_path(name):
 # ******************************************************************************
 # CLASSES
 
-# CLASS - CUSTOM DIALOG
+#DIALOGUES
 class CustomMessageDialog(QtWidgets.QDialog):
 	def __init__(self, title, heading, detail="", sub_detail="", parent=None):
 		super().__init__(parent)
@@ -140,8 +148,6 @@ class CustomMessageDialog(QtWidgets.QDialog):
 
 		main_layout.addLayout(button_layout)
 
-
-# CLASS - EMPTY FOLDERS DIALOGUE
 class EmptyFoldersDialog(QtWidgets.QDialog):
 	def __init__(self, empty_folders, parent=None):
 		super().__init__(parent)
@@ -221,8 +227,173 @@ class EmptyFoldersDialog(QtWidgets.QDialog):
 
 		layout.addLayout(button_row)
 
+class ConfirmActionDialog(QtWidgets.QDialog):
+	def __init__(self, title, heading, detail="", sub_detail="", confirm_text="Delete", parent=None):
+		super().__init__(parent)
 
-# CLASS - ShowTools
+		self.setWindowTitle(title)
+		self.setWindowIcon(QtGui.QIcon(icon_path("logo")))
+		self.setModal(True)
+		self.setFixedSize(430, 175)
+
+		self.setStyleSheet("""
+			QDialog {
+				background-color: #2f2f2f;
+			}
+
+			QLabel {
+				background-color: transparent;
+			}
+
+			QLabel#headingLabel {
+				color: #d8a106;
+				font-size: 16px;
+				font-weight: 600;
+			}
+
+			QLabel#detailLabel {
+				color: #f2f2f2;
+				font-size: 13px;
+				font-weight: 400;
+			}
+
+			QLabel#subDetailLabel {
+				color: #bfbfbf;
+				font-size: 11px;
+				font-weight: 400;
+			}
+
+			QPushButton {
+				background-color: #c99700;
+				color: black;
+				border: none;
+				padding: 5px 14px;
+				min-width: 72px;
+				min-height: 30px;
+				font-size: 12px;
+				font-weight: 500;
+			}
+
+			QPushButton:hover {
+				background-color: #d8a106;
+			}
+
+			QPushButton:pressed {
+				background-color: #b88705;
+			}
+
+			QPushButton#btn_cancel {
+				background-color: #4a4a4a;
+				color: #ededed;
+			}
+
+			QPushButton#btn_cancel:hover {
+				background-color: #5a5a5a;
+			}
+
+			QPushButton#btn_cancel:pressed {
+				background-color: #3a3a3a;
+			}
+		""")
+
+		main_layout = QtWidgets.QVBoxLayout(self)
+		main_layout.setContentsMargins(24, 18, 24, 18)
+		main_layout.setSpacing(8)
+
+		self.heading_label = QtWidgets.QLabel(heading)
+		self.heading_label.setObjectName("headingLabel")
+		self.heading_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+		main_layout.addWidget(self.heading_label)
+
+		if detail:
+			self.detail_label = QtWidgets.QLabel(detail)
+			self.detail_label.setObjectName("detailLabel")
+			self.detail_label.setWordWrap(True)
+			self.detail_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+			main_layout.addWidget(self.detail_label)
+
+		if sub_detail:
+			self.sub_detail_label = QtWidgets.QLabel(sub_detail)
+			self.sub_detail_label.setObjectName("subDetailLabel")
+			self.sub_detail_label.setWordWrap(True)
+			self.sub_detail_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+			main_layout.addWidget(self.sub_detail_label)
+
+		main_layout.addStretch()
+
+		button_layout = QtWidgets.QHBoxLayout()
+		button_layout.addStretch()
+
+		self.cancel_button = QtWidgets.QPushButton("Cancel")
+		self.cancel_button.setObjectName("btn_cancel")
+		self.cancel_button.clicked.connect(self.reject)
+		button_layout.addWidget(self.cancel_button)
+
+		self.delete_button = QtWidgets.QPushButton(confirm_text)
+		self.delete_button.clicked.connect(self.accept)
+		button_layout.addWidget(self.delete_button)
+
+		main_layout.addLayout(button_layout)
+
+#RULE ITEMS
+class RuleListItemWidget(QtWidgets.QWidget):
+	def __init__(self, text="", parent=None):
+		super().__init__(parent)
+
+		self.setObjectName("ruleListItemWidget")
+
+		# Left side spacer to balance the delete icon area on the right
+		self.left_spacer = QtWidgets.QWidget()
+		self.left_spacer.setFixedWidth(22)
+
+		self.label = QtWidgets.QLabel(text)
+		self.label.setObjectName("label_ruleItem")
+		self.label.setAlignment(QtCore.Qt.AlignCenter)
+
+		# Right side fixed container
+		self.right_container = QtWidgets.QWidget()
+		self.right_container.setFixedWidth(22)
+
+		right_layout = QtWidgets.QHBoxLayout(self.right_container)
+		right_layout.setContentsMargins(0, 0, 0, 0)
+		right_layout.setSpacing(0)
+
+		self.btn_delete = QtWidgets.QPushButton()
+		self.btn_delete.setObjectName("btn_ruleDelete")
+		self.btn_delete.setFixedSize(18, 18)
+		self.btn_delete.setIconSize(QtCore.QSize(12, 12))
+		self.btn_delete.setCursor(QtCore.Qt.PointingHandCursor)
+		self.btn_delete.setIcon(QtGui.QIcon(icon_path("trash_icon")))
+		self.btn_delete.hide()
+
+		right_layout.addWidget(self.btn_delete, 0, QtCore.Qt.AlignCenter)
+
+		layout = QtWidgets.QHBoxLayout(self)
+		layout.setContentsMargins(10, 2, 10, 2)
+		layout.setSpacing(6)
+
+		layout.addWidget(self.left_spacer, 0)
+		layout.addWidget(self.label, 1)
+		layout.addWidget(self.right_container, 0)
+
+		self.set_selected(False)
+
+	def set_text(self, text):
+		self.label.setText(text)
+
+	def set_selected(self, selected):
+		self.btn_delete.setVisible(selected)
+		self.label.setProperty("selectedRule", selected)
+		self.label.style().unpolish(self.label)
+		self.label.style().polish(self.label)
+
+#CENTRE DELEGATE
+class CenteredItemDelegate(QtWidgets.QStyledItemDelegate):
+	def initStyleOption(self, option, index):
+		super().initStyleOption(option, index)
+		option.displayAlignment = QtCore.Qt.AlignCenter
+
+#ShowTools - Main App
 class ShowTools:
 
 	def __init__(self):
@@ -247,11 +418,13 @@ class ShowTools:
 		self.wgShowTools.btn_browseTargetFolder.setIcon(QtGui.QIcon(icon_path("browse_file_icon")))
 
 		# SIGNALS
+		# ------- MAIN SETINGS PAGE --------
 		# ------- Action Buttons
 		self.wgShowTools.btn_clearSettings.clicked.connect(self.press_clearSettings)
 		self.wgShowTools.btn_browseConfig.clicked.connect(self.press_browseConfig)
 		self.wgShowTools.btn_saveSettings.clicked.connect(self.press_saveSettings)
 		self.wgShowTools.btn_browseTargetFolder.clicked.connect(self.press_browseTargetFolder)
+		self.wgShowTools.input_targetFolder.textChanged.connect(self.update_revert_button_state)
 		self.wgShowTools.btn_export.clicked.connect(self.press_export)
 
 		# ------- Links
@@ -261,12 +434,81 @@ class ShowTools:
 		self.wgShowTools.btn_youtube.clicked.connect(self.press_loadYoutube)
 		self.wgShowTools.btn_website.clicked.connect(self.press_loadWebsite)
 
-		# SETUP
-		self.wgShowTools.input_shootDate.setDate(QDate.currentDate())
-		self.wgShowTools.input_configFile.setPlaceholderText("Select sorting template...")
-		self.update_target_folder_state("")
-		self.show_main_settings()
+		# ------- RENAME SETINGS PAGE --------
+		# ------- Action Buttons
+		self.wgShowTools.btn_addRule.clicked.connect(self.press_addRule)
+		self.wgShowTools.btn_clearNamingRule.clicked.connect(self.press_clearNamingRule)
+		self.wgShowTools.btn_revert.clicked.connect(self.press_revert)
+		self.wgShowTools.btn_revert.setEnabled(False)
+	
+		# ------- RENAME TOKENS
+		self.wgShowTools.btn_token_first.clicked.connect(self.press_btn_token_first)
+		self.wgShowTools.btn_token_middle.clicked.connect(self.press_btn_token_middle)
+		self.wgShowTools.btn_token_last.clicked.connect(self.press_btn_token_last)
+		self.wgShowTools.btn_token_all.clicked.connect(self.press_btn_token_all)
 
+		self.wgShowTools.btn_token_slate.clicked.connect(self.press_btn_token_slate)
+		self.wgShowTools.btn_token_wrangler.clicked.connect(self.press_btn_token_wrangler)
+		self.wgShowTools.btn_token_unit.clicked.connect(self.press_btn_token_unit)
+		self.wgShowTools.btn_token_date.clicked.connect(self.press_btn_token_date)
+		self.wgShowTools.btn_token_project.clicked.connect(self.press_btn_token_project)
+		self.wgShowTools.btn_token_location.clicked.connect(self.press_btn_token_location)
+		self.wgShowTools.btn_token_data_type.clicked.connect(self.press_btn_token_data_type)
+		self.wgShowTools.btn_token_focal.clicked.connect(self.press_btn_token_focal)
+		
+
+		# ------- RULE SETTINGS SAVER
+		self.wgShowTools.input_dataTypeRename.textChanged.connect(self.on_rule_editor_changed)
+		self.wgShowTools.combo_sortBy.currentIndexChanged.connect(self.on_rule_editor_changed)
+		self.wgShowTools.check_splitImageType.stateChanged.connect(self.on_rule_editor_changed)
+		self.wgShowTools.check_deleteEmptyFolders.stateChanged.connect(self.on_rule_editor_changed)
+		self.wgShowTools.input_namingRule.textChanged.connect(self.on_rule_editor_changed)
+
+		# ------- SETUP --------
+
+		# ------- LIVE PREVIEW --------
+		self.wgShowTools.input_targetFolder.textChanged.connect(self.update_live_preview)
+		self.update_revert_button_state()
+		self.setup_preview_model()
+
+		self.wgShowTools.tree_preview.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+		self.wgShowTools.tree_preview.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+		self.wgShowTools.tree_preview.setRootIsDecorated(False)
+		self.wgShowTools.tree_preview.setItemsExpandable(False)
+
+		# RENAME RULES
+		self.update_add_rule_button_state()
+		self.rename_rules = []
+		self.current_rule_index = None
+		
+		self.update_rules_list_height()
+		self.wgShowTools.list_rules.currentRowChanged.connect(self.on_rule_selected)
+		self.update_rule_editor_state()
+
+		# Center dropdown items
+		delegate = CenteredItemDelegate(self.wgShowTools.combo_sortBy)
+		self.wgShowTools.combo_sortBy.setItemDelegate(delegate)
+
+		# Center selected value
+		combo = self.wgShowTools.combo_sortBy
+		combo.setEditable(True)
+		combo.lineEdit().setAlignment(QtCore.Qt.AlignCenter)
+		combo.lineEdit().setReadOnly(True)
+
+		# Shift text slightly right
+		combo.lineEdit().setStyleSheet("""
+			padding-left: 26px;
+		""")
+
+		# DATE
+		self.wgShowTools.input_shootDate.setDate(QDate.currentDate())
+		# PLACEHOLDER TEXT
+		self.wgShowTools.input_configFile.setPlaceholderText("Select sorting template...")
+		# TARGET FOLDER
+		self.update_target_folder_state("")
+		# SET TAB
+		self.show_main_settings()
+		# LOAD DEFAULTS
 		self.load_show_defaults()
 
 		# GET PATH FROM SYS.ARGV - RIGHT CLICK, SEND TO
@@ -325,7 +567,835 @@ class ShowTools:
 			self.wgShowTools.btn_renameSettings.setStyleSheet(active_style)
 
 	# *********************************************************************#
-	# HELPERS
+	#HELPERS
+	#REVERSE MANIFEST
+	def get_revert_manifest_path(self, folder_path):
+		if not folder_path:
+			return None
+
+		folder = Path(folder_path)
+		return folder / ".showtools" / "revert_manifest.yaml"
+
+	def validate_revert_manifest(self, manifest_path, folder_path):
+		try:
+			if not manifest_path or not manifest_path.is_file():
+				return False
+
+			with open(manifest_path, "r", encoding="utf-8") as f:
+				data = yaml.safe_load(f) or {}
+
+			manifest = data.get("export_manifest", {})
+			if not manifest:
+				return False
+
+			manifest_root = manifest.get("manifest_root", "")
+			if not manifest_root:
+				return False
+
+			selected = str(Path(folder_path).resolve())
+			stored = str(Path(manifest_root).resolve())
+
+			return selected == stored
+
+		except Exception:
+			return False
+
+	def update_revert_button_state(self):
+		folder_path = self.wgShowTools.input_targetFolder.text().strip()
+		button = self.wgShowTools.btn_revert
+
+		if not folder_path:
+			button.setEnabled(False)
+			button.setProperty("revertState", "disabled")
+			button.style().unpolish(button)
+			button.style().polish(button)
+			return
+
+		manifest_path = self.get_revert_manifest_path(folder_path)
+		is_valid = self.validate_revert_manifest(manifest_path, folder_path)
+
+		button.setEnabled(is_valid)
+
+		if is_valid:
+			button.setProperty("revertState", "ready")
+		else:
+			button.setProperty("revertState", "disabled")
+
+		button.style().unpolish(button)
+		button.style().polish(button)
+
+	def write_revert_manifest(self, final_root, original_root, operations, output_root=None):
+		try:
+			manifest_dir = Path(final_root) / ".showtools"
+			manifest_dir.mkdir(parents=True, exist_ok=True)
+
+			manifest_path = manifest_dir / "revert_manifest.yaml"
+
+			manifest_data = {
+				"export_manifest": {
+					"version": 1,
+					"created_at": datetime.now().isoformat(timespec="seconds"),
+					"original_root": str(Path(original_root).resolve()),
+					"manifest_root": str(Path(final_root).resolve()),
+					"output_root": str(Path(output_root or final_root).resolve()),
+					"operations": operations,
+				}
+			}
+
+			with open(manifest_path, "w", encoding="utf-8") as f:
+				yaml.dump(manifest_data, f, default_flow_style=False, sort_keys=False)
+
+			return manifest_path
+
+		except Exception as error:
+			print(f"Failed to write revert manifest: {error}")
+			return None
+
+	def read_revert_manifest(self, folder_path):
+		manifest_path = self.get_revert_manifest_path(folder_path)
+		if not manifest_path or not manifest_path.is_file():
+			return None
+
+		try:
+			with open(manifest_path, "r", encoding="utf-8") as f:
+				return yaml.safe_load(f) or {}
+		except Exception:
+			return None
+
+	def confirm_revert_sort(self):
+		dialog = ConfirmActionDialog(
+			title="Revert Sort",
+			heading="Revert This Package?",
+			detail="This will restore the folder structure and names to their original state.",
+			sub_detail="Any changes made after sorting may be lost or cannot be fully restored.",
+			confirm_text="Revert",
+			parent=self.wgShowTools
+		)
+		return dialog.exec() == QtWidgets.QDialog.Accepted
+
+	def get_manifest_operations(self, folder_path):
+		data = self.read_revert_manifest(folder_path)
+		if not data:
+			return []
+
+		manifest = data.get("export_manifest", {})
+		return manifest.get("operations", [])
+
+	def reverse_single_operation(self, operation):
+		op_type = operation.get("type", "").strip()
+
+		if op_type in {"move", "rename_folder", "rename_package"}:
+			src = operation.get("from", "")
+			dst = operation.get("to", "")
+
+			if not src or not dst:
+				return False, f"Missing paths for operation '{op_type}'"
+
+			if not os.path.exists(dst):
+				return False, f"Expected current path does not exist: {dst}"
+
+			parent = os.path.dirname(src)
+			if parent and not os.path.exists(parent):
+				os.makedirs(parent, exist_ok=True)
+
+			if os.path.exists(src):
+				return False, f"Original path already exists, cannot restore: {src}"
+
+			os.rename(dst, src)
+			return True, f"Restored {dst} -> {src}"
+
+		elif op_type == "split":
+			folder = operation.get("folder", "")
+
+			if not folder or not os.path.isdir(folder):
+				return False, f"Split folder missing: {folder}"
+
+			subfolders = [
+				os.path.join(folder, name)
+				for name in os.listdir(folder)
+				if os.path.isdir(os.path.join(folder, name))
+			]
+
+			for subfolder in subfolders:
+				for name in os.listdir(subfolder):
+					src_file = os.path.join(subfolder, name)
+					dst_file = os.path.join(folder, name)
+
+					if not os.path.isfile(src_file):
+						continue
+
+					if os.path.exists(dst_file):
+						return False, f"Cannot unsplit because file already exists: {dst_file}"
+
+					shutil.move(src_file, dst_file)
+
+				if os.path.isdir(subfolder) and not os.listdir(subfolder):
+					os.rmdir(subfolder)
+
+			return True, f"Unsplit files back into: {folder}"
+
+		return False, f"Unsupported operation type: {op_type}"
+
+	def revert_operations_from_manifest(self, folder_path):
+		operations = self.get_manifest_operations(folder_path)
+
+		if not operations:
+			return {
+				"success": False,
+				"messages": ["No operations found in revert manifest."],
+			}
+
+		results = []
+		all_success = True
+
+		for index, operation in enumerate(reversed(operations), start=1):
+			op_type = operation.get("type", "unknown")
+
+			try:
+				ok, message = self.reverse_single_operation(operation)
+				results.append(f"[{index}] {op_type}: {message}")
+
+				if not ok:
+					all_success = False
+					results.append(f"    Operation data: {operation}")
+
+			except Exception as error:
+				all_success = False
+				results.append(f"[{index}] {op_type}: ERROR - {error}")
+				results.append(f"    Operation data: {operation}")
+
+		return {
+			"success": all_success,
+			"messages": results,
+		}
+
+	def remove_empty_dir_tree(self, path):
+		path = Path(path)
+
+		if not path.exists() or not path.is_dir():
+			return
+
+		for child in list(path.iterdir()):
+			if child.is_dir():
+				self.remove_empty_dir_tree(child)
+
+		if not any(path.iterdir()):
+			path.rmdir()
+
+	def write_revert_debug_log(self, folder_path, messages):
+		try:
+			log_dir = Path(folder_path) / ".showtools"
+			log_dir.mkdir(parents=True, exist_ok=True)
+
+			log_path = log_dir / "revert_debug_log.txt"
+
+			with open(log_path, "w", encoding="utf-8") as f:
+				for line in messages:
+					f.write(str(line) + "\n")
+
+			return log_path
+		except Exception as error:
+			print(f"Failed to write revert debug log: {error}")
+			return None
+
+	#PIPELINE PROFILE
+	def get_pipeline_profile_data(self):
+		self.save_current_rule_settings()
+
+		return {
+			"project_details": {
+				"project_name": self.wgShowTools.input_projectName.text().strip(),
+			},
+			"package_settings": {
+				"rename_package": self.wgShowTools.chk_renamePackage.isChecked(),
+				"remove": self.wgShowTools.input_remove.text().strip(),
+				"prefix": self.wgShowTools.input_prefix.text().strip(),
+				"suffix": self.wgShowTools.input_suffix.text().strip(),
+				"generate_yaml": self.wgShowTools.chk_generateYAML.isChecked(),
+				"notify_by_email": self.wgShowTools.chk_notifyByEmail.isChecked(),
+				"create_revert_manifest": self.wgShowTools.chk_reverseManifest.isChecked(),
+			},
+			"rename_rules": self.rename_rules,
+		}
+
+	def load_rename_rules_from_profile(self, rename_rules):
+		"""
+		Replace current rename rules with those loaded from a profile
+		and rebuild the rules list UI.
+		"""
+		self.save_current_rule_settings()
+
+		list_widget = self.wgShowTools.list_rules
+		list_widget.blockSignals(True)
+
+		list_widget.clear()
+		self.rename_rules = []
+		self.current_rule_index = None
+
+		for i, rule in enumerate(rename_rules):
+			rule_data = {
+				"name": rule.get("name", f"CONVENTION {i + 1}"),
+				"data_type": rule.get("data_type", ""),
+				"sort_by": rule.get("sort_by", ""),
+				"split_image_type": rule.get("split_image_type", False),
+				"delete_empty_folders": rule.get("delete_empty_folders", False),
+				"naming_rule": rule.get("naming_rule", "{ALL}"),
+			}
+
+			self.rename_rules.append(rule_data)
+
+			item = QtWidgets.QListWidgetItem()
+			item.setSizeHint(QtCore.QSize(0, 44))
+
+			display_name = rule_data["data_type"].strip() or rule_data["name"]
+			widget = RuleListItemWidget(display_name)
+
+			list_widget.addItem(item)
+			list_widget.setItemWidget(item, widget)
+
+			widget.btn_delete.clicked.connect(lambda _, it=item: self.delete_rule_item(it))
+
+		list_widget.blockSignals(False)
+
+		# Refresh list/editor UI state
+		self.update_rules_list_height()
+		self.update_add_rule_button_state()
+		self.update_rule_editor_state()
+		self.refresh_rule_item_selection_ui()
+		self.update_live_preview()
+
+		if self.rename_rules:
+			list_widget.setCurrentRow(0)
+		else:
+			self.current_rule_index = None
+		
+	#FOCAL LENGTH DETECTORS
+	def detect_folder_focal_length(self, folder_path):
+		"""
+		Look through files in a folder and return the first focal length found,
+		formatted like '35mm'. Returns '' if nothing is found.
+		"""
+		if not folder_path or not os.path.isdir(folder_path):
+			return ""
+
+		preferred_ext_order = [".cr2", ".cr3", ".arw", ".dng", ".jpg", ".jpeg", ".tif", ".tiff"]
+
+		candidate_files = []
+
+		for file_name in os.listdir(folder_path):
+			file_path = os.path.join(folder_path, file_name)
+
+			if not os.path.isfile(file_path):
+				continue
+
+			ext = os.path.splitext(file_name)[1].lower()
+			if ext in preferred_ext_order:
+				priority = preferred_ext_order.index(ext)
+				candidate_files.append((priority, file_path))
+
+		candidate_files.sort(key=lambda x: x[0])
+
+		for _, file_path in candidate_files:
+			
+
+			focal_value = self.extract_focal_length_from_image(file_path)
+			if focal_value:
+				return focal_value
+
+		return ""
+
+	def extract_focal_length_from_image(self, image_path):
+		"""
+		Read focal length metadata and return it as a string like '35mm'.
+		Returns '' if unavailable.
+		"""
+		try:
+			with Image.open(image_path) as img:
+				exif = img.getexif()			
+
+				if not exif:
+					return ""
+
+				focal_raw = None
+
+				# 1) Try the merged/top-level EXIF first
+				focal_raw = exif.get(ExifTags.Base.FocalLength)
+
+				# 2) If not there, try the EXIF IFD explicitly
+				if focal_raw is None:
+					try:
+						exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+						focal_raw = exif_ifd.get(ExifTags.Base.FocalLength)
+					except Exception:
+						pass
+
+				# 3) Optional fallback: 35mm-equivalent if true focal isn't present
+				if focal_raw is None:
+					try:
+						exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+						focal_raw = exif_ifd.get(ExifTags.Base.FocalLengthIn35mmFilm)
+					except Exception:
+						pass
+
+				if focal_raw is None:
+					return ""
+
+
+				focal_clean = self.format_focal_length_value(focal_raw)
+				if not focal_clean:
+					return ""
+
+				return f"{focal_clean}mm"
+
+		except Exception as error:
+			return ""
+
+	def format_focal_length_value(self, focal_raw):
+		"""
+		Convert EXIF values like 35, 35.0, or rational values into '35' or '35.5'.
+		"""
+		try:
+			# tuple-like rational
+			if isinstance(focal_raw, tuple) and len(focal_raw) == 2:
+				num, den = focal_raw
+				if den == 0:
+					return ""
+				value = float(num) / float(den)
+			else:
+				# handles int, float, and Pillow's rational-like values
+				value = float(focal_raw)
+
+			if value.is_integer():
+				return str(int(value))
+
+			return f"{value:.1f}".rstrip("0").rstrip(".")
+		except Exception:
+			return ""
+
+	#RULE ITEMS
+	def confirm_delete_rule(self, rule_name):
+		dialog = ConfirmActionDialog(
+			title="Delete Rule",
+			heading="Delete Naming Convention?",
+			detail=f'Are you sure you want to delete "{rule_name}"?',
+			sub_detail="This action cannot be undone.",
+			parent=self.wgShowTools
+		)
+		return dialog.exec() == QtWidgets.QDialog.Accepted	
+
+	def refresh_rule_item_selection_ui(self):
+		"""Show delete button only on selected row and update text color."""
+		for i in range(self.wgShowTools.list_rules.count()):
+			item = self.wgShowTools.list_rules.item(i)
+			if not item:
+				continue
+
+			widget = self.wgShowTools.list_rules.itemWidget(item)
+			if widget:
+				widget.set_selected(i == self.current_rule_index)
+
+	def update_add_rule_button_state(self):
+		"""Make Add Rule look like a primary item only when no rules exist."""
+		has_no_rules = self.wgShowTools.list_rules.count() == 0
+
+		self.wgShowTools.btn_addRule.setProperty("emptyState", has_no_rules)
+		self.wgShowTools.btn_addRule.style().unpolish(self.wgShowTools.btn_addRule)
+		self.wgShowTools.btn_addRule.style().polish(self.wgShowTools.btn_addRule)
+
+	def setup_preview_model(self):
+		"""Create the model used by the live preview tree."""
+		self.preview_model = QStandardItemModel()
+		self.preview_model.setColumnCount(1)
+		self.preview_model.setHeaderData(0, QtCore.Qt.Horizontal, "Output Name")
+
+		self.wgShowTools.tree_preview.setModel(self.preview_model)
+
+		# Tree behaviour
+		self.wgShowTools.tree_preview.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+		self.wgShowTools.tree_preview.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+		self.wgShowTools.tree_preview.setRootIsDecorated(False)
+		self.wgShowTools.tree_preview.setItemsExpandable(False)
+		self.wgShowTools.tree_preview.setAllColumnsShowFocus(True)
+
+		# Scrolling / display
+		self.wgShowTools.tree_preview.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+		self.wgShowTools.tree_preview.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+		self.wgShowTools.tree_preview.setHorizontalScrollMode(QtWidgets.QAbstractItemView.ScrollPerPixel)
+		self.wgShowTools.tree_preview.setTextElideMode(QtCore.Qt.ElideNone)
+		self.wgShowTools.tree_preview.setAlternatingRowColors(False)
+
+		# Column sizing
+		header = self.wgShowTools.tree_preview.header()
+		header.hide()
+		header.setStretchLastSection(True)
+		header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+
+	def update_data_type_field_state(self, state="neutral"):
+		"""
+		Update the Data Type field visual state.
+
+		state:
+			- "neutral"
+			- "valid"
+			- "missing"
+		"""
+		widget = self.wgShowTools.input_dataTypeRename
+		widget.setProperty("dataTypeState", state)
+		widget.style().unpolish(widget)
+		widget.style().polish(widget)
+
+	def get_current_rule_source_folder(self):
+		"""
+		Return the matched source folder for the currently selected rule.
+
+		Supports:
+		1. target_folder / data_type
+		2. target_folder itself if its name matches data_type
+		"""
+		if self.current_rule_index is None:
+			return None
+
+		target_folder_text = self.wgShowTools.input_targetFolder.text().strip()
+		data_type_text = self.wgShowTools.input_dataTypeRename.text().strip()
+
+		if not target_folder_text or not data_type_text:
+			return None
+
+		target_folder = Path(target_folder_text)
+		if not target_folder.is_dir():
+			return None
+
+		# --- Standard mode ---
+		candidate = target_folder / data_type_text
+		if candidate.is_dir():
+			return candidate
+
+		# --- Single data type mode ---
+		if target_folder.name.lower() == data_type_text.lower():
+			return target_folder
+
+		return None
+
+	def get_preview_folder_names(self, source_folder):
+		"""Return immediate child folder names from the matched data-type folder."""
+		if not source_folder or not source_folder.is_dir():
+			return []
+
+		folder_names = []
+		for child in source_folder.iterdir():
+			if child.is_dir():
+				folder_names.append(child.name)
+
+		return sorted(folder_names, key=str.lower)
+
+	def parse_name_segments(self, original_name):
+		"""Split an original folder name into underscore-separated segments."""
+		if not original_name:
+			return []
+
+		return [segment for segment in original_name.split("_") if segment]
+
+	def build_preview_name(self, original_name, rule):
+		"""
+		Apply the current naming rule to a folder name.
+
+		Supported name tokens:
+			{ALL}
+			{FIRST}
+			{MIDDLE}
+			{LAST}
+
+		Supported metadata tokens:
+			{SLATE}
+			{WRANGLER}
+			{UNIT}
+			{DATE}
+			{PROJECT}
+			{LOCATION}
+			{DATA_TYPE}
+			{FOCAL}
+		"""
+		naming_rule = rule.get("naming_rule", "").strip()
+		if not naming_rule:
+			naming_rule = "{ALL}"
+
+		segments = self.parse_name_segments(original_name)
+
+		first = ""
+		rest = ""
+		last = ""
+		all_name = original_name
+
+		if len(segments) == 1:
+			first = segments[0]
+
+		elif len(segments) >= 2:
+			first = segments[0]
+			rest = "_".join(segments[1:])
+			last = segments[-1]
+
+		focal_value = rule.get("focal", "").strip()
+		if not focal_value:
+			focal_value = "VARIABLEmm"
+
+		replacements = {
+			"{ALL}": all_name,
+			"{FIRST}": first,
+			"{REST}": rest,
+			"{LAST}": last,
+			"{SLATE}": self.wgShowTools.input_wrangler.currentText().strip() if False else first,
+			"{WRANGLER}": self.wgShowTools.input_wrangler.currentText().strip(),
+			"{UNIT}": self.wgShowTools.input_unit.currentText().strip(),
+			"{DATE}": self.wgShowTools.input_shootDate.date().toString("yyyyMMdd"),
+			"{PROJECT}": self.wgShowTools.input_projectName.text().strip(),
+			"{LOCATION}": "",
+			"{DATA_TYPE}": rule.get("data_type", "").strip(),
+			"{FOCAL}": focal_value,
+		}
+
+		preview_name = naming_rule
+
+		for token, value in replacements.items():
+			preview_name = preview_name.replace(token, value)
+
+		# Cleanup repeated underscores from missing values
+		while "__" in preview_name:
+			preview_name = preview_name.replace("__", "_")
+
+		preview_name = preview_name.strip("_")
+		return preview_name
+
+	def set_preview_empty_state(self, detail_text="Preview will appear here."):
+		
+		if hasattr(self.wgShowTools, "label_previewEmptyDetail"):
+			self.wgShowTools.label_previewEmptyDetail.setText(detail_text)
+
+		if hasattr(self.wgShowTools, "stackedWidget_preview"):
+			if hasattr(self.wgShowTools, "page_previewEmpty"):
+				self.wgShowTools.stackedWidget_preview.setCurrentWidget(self.wgShowTools.page_previewEmpty)
+
+	def set_preview_tree_state(self):
+		
+		if hasattr(self.wgShowTools, "stackedWidget_preview"):
+			if hasattr(self.wgShowTools, "page_previewTree"):
+				self.wgShowTools.stackedWidget_preview.setCurrentWidget(self.wgShowTools.page_previewTree)
+
+	def update_live_preview(self):
+		"""Refresh data-type validation and the live folder preview."""
+		self.preview_model.removeRows(0, self.preview_model.rowCount())
+
+		# No rule selected
+		if self.current_rule_index is None or self.current_rule_index >= len(self.rename_rules):
+			self.update_data_type_field_state("neutral")
+			self.set_preview_empty_state("Add a rule to begin previewing.")
+			return
+
+		rule = self.rename_rules[self.current_rule_index]
+		source_folder = self.get_current_rule_source_folder()
+		data_type_text = self.wgShowTools.input_dataTypeRename.text().strip()
+
+		# No data type entered yet
+		if not data_type_text:
+			self.update_data_type_field_state("neutral")
+			self.set_preview_empty_state("Enter a Data Type to preview folders.")
+			return
+
+		# No valid matching folder
+		if source_folder is None:
+			self.update_data_type_field_state("missing")
+			self.set_preview_empty_state(f'No "{data_type_text}" folder found in target folder.')
+			return
+
+		self.update_data_type_field_state("valid")
+
+		folder_names = self.get_preview_folder_names(source_folder)
+
+		if not folder_names:
+			self.set_preview_empty_state(f'No items found inside "{source_folder.name}".')
+			return
+
+		for folder_name in folder_names:
+			folder_path = source_folder / folder_name
+
+			preview_rule = rule.copy()
+			preview_rule["focal"] = self.detect_folder_focal_length(str(folder_path))
+
+			preview_name = self.build_preview_name(folder_name, preview_rule)
+
+			preview_item = QStandardItem(preview_name)
+			preview_item.setEditable(False)
+			preview_item.setToolTip(preview_name)
+
+			self.preview_model.appendRow([preview_item])
+
+		self.set_preview_tree_state()
+		self.wgShowTools.tree_preview.expandAll()
+
+	#RULES HEIGHT
+	def update_rules_list_height(self):
+		"""Resize the rules list so Add Rule sits under the last item, up to a max height."""
+		list_widget = self.wgShowTools.list_rules
+		count = list_widget.count()
+
+		if count == 0:
+			list_widget.setFixedHeight(0)
+			return
+
+		row_height = list_widget.sizeHintForRow(0)
+		frame = list_widget.frameWidth() * 2
+		padding = 2
+
+		total_height = (row_height * count) + frame + padding
+
+		# Max visible rows before scrollbar takes over
+		max_visible_rows = 11
+		max_height = (row_height * max_visible_rows) + frame + padding
+
+		list_widget.setFixedHeight(min(total_height, max_height))
+
+	#RULES SETTINGS
+	def on_rule_selected(self, row):
+		"""Save the current rule, then load the newly selected rule."""
+		if row < 0 or row >= len(self.rename_rules):
+			self.current_rule_index = None
+			self.update_rule_editor_state()
+			self.update_live_preview()
+			return
+
+		# Save the rule that was previously selected
+		if self.current_rule_index is not None and self.current_rule_index < len(self.rename_rules):
+			self.save_current_rule_settings()
+
+		self.current_rule_index = row
+		self.load_rule_settings(row)
+		self.update_rule_editor_state()
+		self.update_live_preview()
+		self.refresh_rule_item_selection_ui()
+	
+	def save_current_rule_settings(self):
+		"""Save the current editor values into the selected rule."""
+		if self.current_rule_index is None:
+			return
+
+		rule = self.rename_rules[self.current_rule_index]
+
+		rule["data_type"] = self.wgShowTools.input_dataTypeRename.text().strip()
+		rule["sort_by"] = self.wgShowTools.combo_sortBy.currentText().strip()
+		rule["split_image_type"] = self.wgShowTools.check_splitImageType.isChecked()
+		rule["delete_empty_folders"] = self.wgShowTools.check_deleteEmptyFolders.isChecked()
+		rule["naming_rule"] = self.wgShowTools.input_namingRule.text().strip()
+
+		self.update_rule_display_name(self.current_rule_index)
+	
+	def load_rule_settings(self, index):
+		"""Load a rule's saved settings into the editor."""
+		if index < 0 or index >= len(self.rename_rules):
+			return
+
+		rule = self.rename_rules[index]
+
+		widgets = [
+			self.wgShowTools.input_dataTypeRename,
+			self.wgShowTools.combo_sortBy,
+			self.wgShowTools.check_splitImageType,
+			self.wgShowTools.check_deleteEmptyFolders,
+			self.wgShowTools.input_namingRule,
+		]
+
+		for widget in widgets:
+			widget.blockSignals(True)
+
+		self.wgShowTools.input_dataTypeRename.setText(rule.get("data_type", ""))
+
+		sort_by_index = self.wgShowTools.combo_sortBy.findText(
+			rule.get("sort_by", ""),
+			QtCore.Qt.MatchExactly
+		)
+		if sort_by_index >= 0:
+			self.wgShowTools.combo_sortBy.setCurrentIndex(sort_by_index)
+		else:
+			self.wgShowTools.combo_sortBy.setCurrentIndex(0)
+
+		self.wgShowTools.check_splitImageType.setChecked(rule.get("split_image_type", False))
+		self.wgShowTools.check_deleteEmptyFolders.setChecked(rule.get("delete_empty_folders", False))
+		self.wgShowTools.input_namingRule.setText(rule.get("naming_rule", ""))
+
+		for widget in widgets:
+			widget.blockSignals(False)
+
+	def update_rule_display_name(self, index):
+		"""Update the outliner item name based on the rule data."""
+		if index < 0 or index >= len(self.rename_rules):
+			return
+
+		rule = self.rename_rules[index]
+
+		if rule.get("data_type", "").strip():
+			display_name = rule["data_type"].strip()
+		else:
+			display_name = f"CONVENTION {index + 1}"
+
+		rule["name"] = display_name
+
+		item = self.wgShowTools.list_rules.item(index)
+		if not item:
+			return
+
+		widget = self.wgShowTools.list_rules.itemWidget(item)
+		if widget:
+			widget.set_text(display_name)
+
+	def on_rule_editor_changed(self):
+		"""Live-save editor changes into the currently selected rule."""
+		if self.current_rule_index is None:
+			return
+
+		self.save_current_rule_settings()
+		self.update_live_preview()
+
+	def update_rule_editor_state(self):
+		"""Show placeholder page when no rule is selected, otherwise show the editor page."""
+		has_selection = (
+			self.current_rule_index is not None
+			and 0 <= self.current_rule_index < len(self.rename_rules)
+		)
+
+		if has_selection:
+			self.wgShowTools.stackedWidget_ruleEditor.setCurrentWidget(self.wgShowTools.page_ruleEditor)
+		else:
+			self.wgShowTools.stackedWidget_ruleEditor.setCurrentWidget(self.wgShowTools.page_noRules)
+
+	#TOKEN RENAMING
+	def insert_naming_token(self, token_text):
+		"""Insert a naming token into the naming rule input, adding underscores only when needed."""
+		line_edit = self.wgShowTools.input_namingRule
+		line_edit.setFocus()
+
+		text = line_edit.text()
+		cursor_pos = line_edit.cursorPosition()
+		selected_text = line_edit.selectedText()
+
+		# If user has selected text, replace it directly with the token
+		if selected_text:
+			line_edit.insert(token_text)
+			return
+
+		before = text[:cursor_pos]
+		after = text[cursor_pos:]
+
+		insert_text = token_text
+
+		# Add underscore before token if needed
+		if before and not before.endswith("_"):
+			insert_text = "_" + insert_text
+
+		# Add underscore after token if needed
+		if after and not after.startswith("_"):
+			insert_text = insert_text + "_"
+
+		line_edit.insert(insert_text)
+
+	#LINKS
 	def open_link(self, url):
 		preferred_browser = "default"
 
@@ -530,11 +1600,11 @@ class ShowTools:
 				"remove": self.wgShowTools.input_remove.text().strip(),
 				"prefix": self.wgShowTools.input_prefix.text().strip(),
 				"suffix": self.wgShowTools.input_suffix.text().strip(),
-				"subfolder_images": self.wgShowTools.chk_subfolderImages.isChecked(),
 				"generate_yaml": self.wgShowTools.chk_generateYAML.isChecked(),
 				"notify_by_email": self.wgShowTools.chk_notifyByEmail.isChecked(),
-				"flag_empty_folders": self.wgShowTools.chk_flagEmptyFolders.isChecked(),
-			}
+				"create_revert_manifest": self.wgShowTools.chk_reverseManifest.isChecked(),
+			},
+			"rename_rules": self.rename_rules,
 		}
 
 	def load_settings_from_yaml(self, file_path):
@@ -544,55 +1614,39 @@ class ShowTools:
 
 			project_details = settings_data.get("project_details", {})
 			package_settings = settings_data.get("package_settings", {})
+			rename_rules = settings_data.get("rename_rules", [])
 
+			# ------------------------------------------------
 			# Project Details
-			self.wgShowTools.input_projectName.setText(project_details.get("project_name", ""))
+			# Only apply project name from the profile
+			# ------------------------------------------------
+			project_name = project_details.get("project_name", None)
+			if project_name is not None:
+				self.wgShowTools.input_projectName.setText(project_name)
 
-			shoot_date = QDate.fromString(project_details.get("shoot_date", ""), "yyyy-MM-dd")
-			if shoot_date.isValid():
-				self.wgShowTools.input_shootDate.setDate(shoot_date)
-			else:
-				self.wgShowTools.input_shootDate.setDate(QDate.currentDate())
-
-			wrangler = project_details.get("wrangler", "")
-			wrangler_index = self.wgShowTools.input_wrangler.findText(
-				wrangler,
-				QtCore.Qt.MatchExactly
-			)
-			if wrangler_index >= 0:
-				self.wgShowTools.input_wrangler.setCurrentIndex(wrangler_index)
-			else:
-				self.wgShowTools.input_wrangler.setCurrentIndex(0)
-
-			unit = project_details.get("unit", "")
-			unit_index = self.wgShowTools.input_unit.findText(
-				unit,
-				QtCore.Qt.MatchExactly
-			)
-			if unit_index >= 0:
-				self.wgShowTools.input_unit.setCurrentIndex(unit_index)
-			else:
-				self.wgShowTools.input_unit.setCurrentIndex(0)
-
+			# ------------------------------------------------
 			# Package Settings
+			# ------------------------------------------------
 			self.wgShowTools.chk_renamePackage.setChecked(
 				package_settings.get("rename_package", False)
 			)
 			self.wgShowTools.input_remove.setText(package_settings.get("remove", ""))
 			self.wgShowTools.input_prefix.setText(package_settings.get("prefix", ""))
 			self.wgShowTools.input_suffix.setText(package_settings.get("suffix", ""))
-			self.wgShowTools.chk_subfolderImages.setChecked(
-				package_settings.get("subfolder_images", False)
-			)
 			self.wgShowTools.chk_generateYAML.setChecked(
 				package_settings.get("generate_yaml", False)
 			)
 			self.wgShowTools.chk_notifyByEmail.setChecked(
 				package_settings.get("notify_by_email", False)
 			)
-			self.wgShowTools.chk_flagEmptyFolders.setChecked(
-				package_settings.get("flag_empty_folders", False)
+			self.wgShowTools.chk_reverseManifest.setChecked(
+				package_settings.get("create_revert_manifest", True)
 			)
+
+			# ------------------------------------------------
+			# Rename Rules
+			# ------------------------------------------------
+			self.load_rename_rules_from_profile(rename_rules)
 
 			self.wgShowTools.input_configFile.setText(file_path)
 
@@ -612,7 +1666,7 @@ class ShowTools:
 			)
 
 	# *********************************************************************#
-	# PRESS
+	# PRESS - MAIN SETTINGS PAGE
 	def press_clearSettings(self):
 		self.wgShowTools.input_configFile.clear()
 		self.wgShowTools.input_configFile.setPlaceholderText("Select sorting template...")
@@ -632,7 +1686,7 @@ class ShowTools:
 		self.wgShowTools.chk_flagEmptyFolders.setChecked(False)
 
 	def press_saveSettings(self):
-		settings_data = self.get_settings_data()
+		settings_data = self.get_pipeline_profile_data()
 
 		file_path, _ = QFileDialog.getSaveFileName(
 			self.wgShowTools,
@@ -673,6 +1727,7 @@ class ShowTools:
 			)
 
 	def press_export(self):
+
 		folder_path = self.wgShowTools.input_targetFolder.text().strip()
 
 		if not folder_path or not os.path.isdir(folder_path):
@@ -683,6 +1738,9 @@ class ShowTools:
 			)
 			return
 
+		original_folder_path = folder_path
+
+		self.save_current_rule_settings()
 		settings_data = self.get_settings_data()
 		package_settings = settings_data.get("package_settings", {})
 
@@ -690,12 +1748,32 @@ class ShowTools:
 		rename_remove = package_settings.get("remove", "")
 		rename_prefix = package_settings.get("prefix", "")
 		rename_suffix = package_settings.get("suffix", "")
+		generate_yaml = package_settings.get("generate_yaml", False)
+		create_revert_manifest = package_settings.get("create_revert_manifest", True)
 
 		try:
-			result = run_slate_sorter(folder_path, settings_data)
+			slate_result = run_slate_sorter(folder_path, settings_data)
+			asset_result = run_asset_sorter(folder_path, settings_data)
 
-			working_path = result.get("final_path", folder_path)
-			empty_folders = result.get("empty_folders", [])
+			output_root = slate_result.get("final_path", folder_path)
+			asset_output_root = asset_result.get("final_path", folder_path)
+
+			# Prefer one shared root if either sorter resolved it
+			if asset_output_root and asset_output_root != folder_path:
+				output_root = asset_output_root
+
+			manifest_root = slate_result.get("manifest_root", output_root)
+			package_rename_target = slate_result.get("package_rename_target", manifest_root)
+
+			empty_folders = []
+			empty_folders.extend(slate_result.get("empty_folders", []))
+			empty_folders.extend(asset_result.get("empty_folders", []))
+
+			operations = []
+			operations.extend(slate_result.get("operations", []))
+			operations.extend(asset_result.get("operations", []))
+
+			invalid_asset_folders = asset_result.get("invalid_asset_folders", [])
 
 			flagged_count = 0
 
@@ -713,19 +1791,63 @@ class ShowTools:
 				flagged_paths = tag_empty_folders(empty_folders)
 				flagged_count = len(flagged_paths)
 
-			final_path = working_path
+			if invalid_asset_folders:
+				invalid_count = len(invalid_asset_folders)
+				print(f"Skipped {invalid_count} invalid asset folder(s):")
+				for path in invalid_asset_folders:
+					print("  ", path)
+
+			final_output_root = output_root
+			final_manifest_root = manifest_root
+			final_package_target = package_rename_target
 
 			if rename_package:
-				final_path = rename_shoot_folder(
-					working_path,
+				pre_rename_path = package_rename_target
+
+				renamed_path = rename_shoot_folder(
+					package_rename_target,
 					rename_remove=rename_remove,
 					rename_prefix=rename_prefix,
 					rename_suffix=rename_suffix
 				)
 
-			self.set_target_folder(final_path)
+				if renamed_path != pre_rename_path:
+					operations.append({
+						"type": "rename_package",
+						"from": pre_rename_path,
+						"to": renamed_path,
+					})
 
-			package_name = os.path.basename(final_path)
+					if final_package_target == pre_rename_path:
+						final_package_target = renamed_path
+
+					if final_manifest_root == pre_rename_path:
+						final_manifest_root = renamed_path
+
+					if final_output_root == pre_rename_path:
+						final_output_root = renamed_path
+
+			if create_revert_manifest:
+				self.write_revert_manifest(
+					final_root=final_manifest_root,
+					original_root=original_folder_path,
+					operations=operations,
+					output_root=final_output_root,
+				)
+
+			if generate_yaml:
+				try:
+					print("Generating report...")
+					generate_report.generate_report(final_output_root, settings_data)
+					print("Report generation finished.")
+				except Exception as report_error:
+					print(f"Report generation failed: {report_error}")
+
+			# In single-data-type mode, keep target attached to the selected folder
+			self.set_target_folder(final_manifest_root)
+			self.update_revert_button_state()
+
+			package_name = os.path.basename(final_package_target)
 			clean_package_name = package_name
 
 			if rename_suffix:
@@ -763,18 +1885,24 @@ class ShowTools:
 				self.email_to = self.email_defaults.get("to", [])
 				self.email_cc = self.email_defaults.get("cc", [])
 
+			slates_path = os.path.join(final_output_root, "SLATES")
+
 			if flagged_count == 1:
 				detail_text = "1 folder was flagged as missing."
 			elif flagged_count > 1:
 				detail_text = f"{flagged_count} folders were flagged as missing."
+			elif invalid_asset_folders:
+				detail_text = f"Skipped {len(invalid_asset_folders)} invalid asset folder(s). See terminal for details."
+			elif os.path.isdir(slates_path):
+				detail_text = slates_path
 			else:
-				detail_text = final_path
+				detail_text = final_manifest_root
 
 			self.show_message(
 				"Export Successful",
 				"Sorting Complete",
 				detail_text,
-				final_path
+				final_manifest_root
 			)
 
 			if hasattr(self, "email_defaults") and self.wgShowTools.chk_notifyByEmail.isChecked():
@@ -792,7 +1920,6 @@ class ShowTools:
 				str(error)
 			)
 
-	# *********************************************************************#
 	# PRESS BROWSE FILES
 	def press_browseConfig(self):
 		file_path, _ = QFileDialog.getOpenFileName(
@@ -817,7 +1944,6 @@ class ShowTools:
 		if folder:
 			self.set_target_folder(folder)
 
-	# *********************************************************************#
 	# PRESS LINKS
 	def press_loadGmail(self):
 		email = "harryshaper@gmail.com"
@@ -845,10 +1971,219 @@ class ShowTools:
 	def press_loadWebsite(self):
 		self.open_link("https://www.shapervfx.com/")
 
+	# *********************************************************************#
+	# PRESS - RENAME SETTINGS PAGE
+	#BUTTONS
+	def press_addRule(self):
+		rule_number = len(self.rename_rules) + 1
+
+		rule_data = {
+			"name": f"CONVENTION {rule_number}",
+			"data_type": "",
+			"sort_by": "",
+			"split_image_type": False,
+			"delete_empty_folders": False,
+			"naming_rule": "{ALL}",
+		}
+
+		self.rename_rules.append(rule_data)
+
+		item = QtWidgets.QListWidgetItem()
+		item.setSizeHint(QtCore.QSize(0, 44))  # controls row height
+
+		widget = RuleListItemWidget(rule_data["name"])
+
+		self.wgShowTools.list_rules.addItem(item)
+		self.wgShowTools.list_rules.setItemWidget(item, widget)
+
+		widget.btn_delete.clicked.connect(lambda: self.delete_rule_item(item))
+
+		self.update_rules_list_height()
+
+		new_index = self.wgShowTools.list_rules.count() - 1
+		self.wgShowTools.list_rules.setCurrentRow(new_index)
+
+		self.update_rule_editor_state()
+		self.update_live_preview()
+		self.update_add_rule_button_state()
+		self.refresh_rule_item_selection_ui()
+
+	def delete_rule_item(self, item):
+		row = self.wgShowTools.list_rules.row(item)
+
+		if row < 0:
+			return
+
+		rule_name = self.rename_rules[row].get("name", f"CONVENTION {row + 1}")
+
+		should_delete = self.confirm_delete_rule(rule_name)
+		if not should_delete:
+			return
+
+		self.wgShowTools.list_rules.takeItem(row)
+		del self.rename_rules[row]
+
+		if not self.rename_rules:
+			self.current_rule_index = None
+		else:
+			new_row = min(row, len(self.rename_rules) - 1)
+			self.wgShowTools.list_rules.setCurrentRow(new_row)
+
+		self.update_rules_list_height()
+		self.update_add_rule_button_state()
+		self.update_rule_editor_state()
+		self.update_live_preview()
+		self.refresh_rule_item_selection_ui()
+
+	def press_clearNamingRule(self):
+		"""Reset the naming rule back to the default original-name token."""
+		self.wgShowTools.input_namingRule.setText("{ALL}")
+		self.wgShowTools.input_namingRule.setFocus()
+
+	def press_revert(self):
+		folder_path = self.wgShowTools.input_targetFolder.text().strip()
+
+		if not folder_path or not os.path.isdir(folder_path):
+			self.show_message(
+				"Revert Unavailable",
+				"Missing Target Folder",
+				"Please select a valid processed folder."
+			)
+			return
+
+		manifest_data = self.read_revert_manifest(folder_path)
+		manifest_path = self.get_revert_manifest_path(folder_path)
+
+		if not self.validate_revert_manifest(manifest_path, folder_path):
+			self.show_message(
+				"Revert Unavailable",
+				"No valid revert manifest found.",
+				"Select a processed ShowTools package to enable revert."
+			)
+			return
+
+		should_revert = self.confirm_revert_sort()
+		if not should_revert:
+			return
+
+		result = self.revert_operations_from_manifest(folder_path)
+		messages = result.get("messages", [])
+
+		manifest = (manifest_data or {}).get("export_manifest", {})
+		original_root = manifest.get("original_root", "")
+		output_root = manifest.get("output_root", "")
+
+		log_path = None
+
+		# Only write debug log if something failed
+		if not result.get("success", False):
+			log_target = original_root if original_root and os.path.exists(original_root) else folder_path
+			log_path = self.write_revert_debug_log(log_target, messages)
+
+		# Always attempt cleanup
+		cleanup_root = None
+
+		if original_root and os.path.exists(original_root):
+			cleanup_root = original_root
+		elif output_root and os.path.exists(output_root):
+			cleanup_root = output_root
+
+		if cleanup_root:
+			slates_path = Path(cleanup_root) / "SLATES"
+			assets_path = Path(cleanup_root) / "ASSETS"
+
+			self.remove_empty_dir_tree(slates_path)
+			self.remove_empty_dir_tree(assets_path)
+
+		# Remove manifests from both possible locations
+		self.remove_revert_manifest(folder_path)
+		if original_root:
+			self.remove_revert_manifest(original_root)
+
+		# If original root exists, point UI back there
+		if original_root and os.path.exists(original_root):
+			self.set_target_folder(original_root)
+
+		self.update_revert_button_state()
+
+		if result.get("success", False):
+			self.show_message(
+				"Revert Successful",
+				"Sort was reversed successfully.",
+				original_root if original_root else folder_path
+			)
+		else:
+			self.show_message(
+				"Revert Completed With Warnings",
+				"Some operations could not be fully reverted.",
+				str(log_path) if log_path else "See terminal/log for details."
+			)
+		
+	def remove_revert_manifest(self, folder_path):
+		manifest_path = self.get_revert_manifest_path(folder_path)
+		if not manifest_path:
+			return
+
+		try:
+			if manifest_path.is_file():
+				os.remove(manifest_path)
+
+			manifest_dir = manifest_path.parent
+
+			# Only remove .showtools if empty
+			if manifest_dir.exists() and not any(manifest_dir.iterdir()):
+				manifest_dir.rmdir()
+
+		except Exception as error:
+			print(f"Failed to remove revert manifest: {error}")
+
+	#NAME TOKENS
+	def press_btn_token_first(self):
+		self.insert_naming_token("{FIRST}")
+
+	def press_btn_token_middle(self):
+		self.insert_naming_token("{REST}")
+
+	def press_btn_token_last(self):
+		self.insert_naming_token("{LAST}")
+
+	def press_btn_token_all(self):
+		self.insert_naming_token("{ALL}")
+
+	#METADATA TOKENS
+	def press_btn_token_slate(self):
+		self.insert_naming_token("{SLATE}")
+
+	def press_btn_token_wrangler(self):
+		self.insert_naming_token("{WRANGLER}")
+
+	def press_btn_token_unit(self):
+		self.insert_naming_token("{UNIT}")
+
+	def press_btn_token_date(self):
+		self.insert_naming_token("{DATE}")
+
+	def press_btn_token_project(self):
+		self.insert_naming_token("{PROJECT}")
+
+	def press_btn_token_location(self):
+		self.insert_naming_token("{LOCATION}")
+
+	def press_btn_token_data_type(self):
+		self.insert_naming_token("{DATA_TYPE}")
+
+	def press_btn_token_focal(self):
+		self.insert_naming_token("{FOCAL}")
+	
 
 # *********************************************************************#
 # START UI
 if __name__ == "__main__":
-    app = QtWidgets.QApplication(sys.argv)
-    initialize_app = ShowTools()
-    app.exec()
+	try:
+		app = QtWidgets.QApplication(sys.argv)
+		initialize_app = ShowTools()
+		app.exec()
+	except Exception as error:
+		import traceback
+		traceback.print_exc()
+		input("Press Enter to close...")

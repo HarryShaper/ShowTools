@@ -1,8 +1,8 @@
 '''*************************************************
 content     slate_sorter
 
-version     1.0.0
-date        28-03-2026
+version     2.0.0
+date        10-04-2026
 
 author      Harry Shaper <harryshaper@gmail.com>
 
@@ -14,6 +14,7 @@ import shutil
 import time
 
 from functools import wraps
+from PIL import Image, ExifTags
 
 # Supports both:
 # 1. python -m showtools.ShowTools
@@ -37,40 +38,248 @@ def timer_function(func):
 	return wrapper
 
 
-def define_shoot_data(shoot_folder):
-	return [
-		os.path.join(shoot_folder, folder)
-		for folder in os.listdir(shoot_folder)
-		if os.path.isdir(os.path.join(shoot_folder, folder))
-	]
+# *********************************************************************#
+# RULE HELPERS
+def resolve_data_type_folder_and_output_root(target_folder, data_type):
+	"""
+	Supports both:
+
+	1. Full shoot mode:
+		target_folder / DATA_TYPE
+
+	2. Single data type mode:
+		target_folder itself is the DATA_TYPE folder
+
+	Returns:
+		(data_type_folder, output_root)
+	"""
+	standard_path = os.path.join(target_folder, data_type)
+	if os.path.isdir(standard_path):
+		return standard_path, target_folder
+
+	target_name = os.path.basename(os.path.normpath(target_folder))
+	if target_name.lower() == data_type.lower():
+		output_root = os.path.dirname(os.path.normpath(target_folder))
+		return target_folder, output_root
+
+	return None, None
 
 
-def update_slate_list(folder, slate_list):
-	data_set_folder = os.listdir(folder)
+def get_slate_rule_map(settings_data):
+	"""
+	Return a dictionary of:
+		data_type -> rule
+	for rules marked as sort_by == SLATE.
+	"""
+	rule_map = {}
 
-	for item in data_set_folder:
-		unique_slate = item.split("_")
-		if unique_slate[0] not in slate_list:
-			slate_list.append(unique_slate[0])
+	for rule in settings_data.get("rename_rules", []):
+		data_type = rule.get("data_type", "").strip()
+		sort_by = rule.get("sort_by", "").strip().upper()
+
+		if not data_type:
+			continue
+
+		if sort_by != "SLATE":
+			continue
+
+		rule_map[data_type] = rule
+
+	return rule_map
 
 
-def get_slates(shoot_folder):
-	slate_list = []
+def get_keep_structure_rule_map(settings_data):
+	"""
+	Return a dictionary of:
+		data_type -> rule
+	for rules marked as sort_by == KEEP STRUCTURE.
+	"""
+	rule_map = {}
 
-	for folder in define_shoot_data(shoot_folder):
-		update_slate_list(folder, slate_list)
+	for rule in settings_data.get("rename_rules", []):
+		data_type = rule.get("data_type", "").strip()
+		sort_by = rule.get("sort_by", "").strip().upper()
 
-	return slate_list
+		if not data_type:
+			continue
+
+		if sort_by != "KEEP STRUCTURE":
+			continue
+
+		rule_map[data_type] = rule
+
+	return rule_map
 
 
-def make_slate_folders(shoot_folder, slate_list):
-	for slate in slate_list:
-		slate_path = os.path.join(shoot_folder, slate.upper())
-		os.makedirs(slate_path, exist_ok=True)
+def parse_name_segments(original_name):
+	"""Split an original folder name into underscore-separated segments."""
+	if not original_name:
+		return []
+
+	return [segment for segment in original_name.split("_") if segment]
+
+
+def format_focal_length_value(focal_raw):
+	"""
+	Convert EXIF values like 35, 35.0, or rational values into '35' or '35.5'.
+	"""
+	try:
+		if isinstance(focal_raw, tuple) and len(focal_raw) == 2:
+			num, den = focal_raw
+			if den == 0:
+				return ""
+			value = float(num) / float(den)
+		else:
+			value = float(focal_raw)
+
+		if value.is_integer():
+			return str(int(value))
+
+		return f"{value:.1f}".rstrip("0").rstrip(".")
+	except Exception:
+		return ""
+
+
+def extract_focal_length_from_image(image_path):
+	"""
+	Read focal length metadata and return it as a string like '35mm'.
+	Returns '' if unavailable.
+	"""
+	try:
+		with Image.open(image_path) as img:
+			exif = img.getexif()
+			if not exif:
+				return ""
+
+			focal_raw = exif.get(ExifTags.Base.FocalLength)
+
+			if focal_raw is None:
+				try:
+					exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+					focal_raw = exif_ifd.get(ExifTags.Base.FocalLength)
+				except Exception:
+					pass
+
+			if focal_raw is None:
+				try:
+					exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+					focal_raw = exif_ifd.get(ExifTags.Base.FocalLengthIn35mmFilm)
+				except Exception:
+					pass
+
+			if focal_raw is None:
+				return ""
+
+			focal_clean = format_focal_length_value(focal_raw)
+			if not focal_clean:
+				return ""
+
+			return f"{focal_clean}mm"
+
+	except Exception:
+		return ""
+
+
+def detect_folder_focal_length(folder_path):
+	"""
+	Look through files in a folder and return the first focal length found,
+	formatted like '35mm'. Returns '' if nothing is found.
+	"""
+	if not folder_path or not os.path.isdir(folder_path):
+		return ""
+
+	preferred_ext_order = [".cr2", ".cr3", ".arw", ".dng", ".jpg", ".jpeg", ".tif", ".tiff"]
+	candidate_files = []
+
+	for file_name in os.listdir(folder_path):
+		file_path = os.path.join(folder_path, file_name)
+
+		if not os.path.isfile(file_path):
+			continue
+
+		ext = os.path.splitext(file_name)[1].lower()
+		if ext in preferred_ext_order:
+			priority = preferred_ext_order.index(ext)
+			candidate_files.append((priority, file_path))
+
+	candidate_files.sort(key=lambda x: x[0])
+
+	for _, file_path in candidate_files:
+		focal_value = extract_focal_length_from_image(file_path)
+		if focal_value:
+			return focal_value
+
+	return ""
+
+
+def build_renamed_folder_name(original_name, rule, settings_data, focal_value=""):
+	"""
+	Apply a rename rule to a folder name using rule + project settings.
+	"""
+	naming_rule = rule.get("naming_rule", "").strip()
+	if not naming_rule:
+		naming_rule = "{ALL}"
+
+	# Backward compatibility for any older saved rules
+	naming_rule = naming_rule.replace("{MIDDLE}", "{REST}")
+
+	project_details = settings_data.get("project_details", {})
+	segments = parse_name_segments(original_name)
+
+	first = ""
+	rest = ""
+	last = ""
+	all_name = original_name
+
+	if len(segments) == 1:
+		first = segments[0]
+
+	elif len(segments) >= 2:
+		first = segments[0]
+		rest = "_".join(segments[1:])
+		last = segments[-1]
+
+	if not focal_value:
+		focal_value = "VARIABLEmm"
+
+	replacements = {
+		"{ALL}": all_name,
+		"{FIRST}": first,
+		"{REST}": rest,
+		"{LAST}": last,
+		"{SLATE}": first,
+		"{WRANGLER}": project_details.get("wrangler", "").strip(),
+		"{UNIT}": project_details.get("unit", "").strip(),
+		"{DATE}": project_details.get("shoot_date", "").replace("-", "").strip(),
+		"{PROJECT}": project_details.get("project_name", "").strip(),
+		"{LOCATION}": "",
+		"{DATA_TYPE}": rule.get("data_type", "").strip(),
+		"{FOCAL}": focal_value,
+	}
+
+	new_name = naming_rule
+	for token, value in replacements.items():
+		new_name = new_name.replace(token, value)
+
+	while "__" in new_name:
+		new_name = new_name.replace("__", "_")
+
+	new_name = new_name.strip("_")
+	return new_name or original_name
 
 
 # *********************************************************************#
 # HELPERS
+def is_single_data_type_input(target_folder, settings_data):
+	target_name = os.path.basename(os.path.normpath(target_folder)).lower()
+
+	for rule in settings_data.get("rename_rules", []):
+		data_type = rule.get("data_type", "").strip().lower()
+		if data_type and data_type == target_name:
+			return True
+
+	return False
+
 def folder_contains_images(folder_path):
 	image_extensions = {
 		".jpg", ".jpeg", ".png", ".tif", ".tiff", ".exr",
@@ -89,11 +298,18 @@ def folder_contains_images(folder_path):
 	return False
 
 
-def find_empty_data_folders(shoot_folder):
+def find_empty_data_folders(root_folder):
+	"""
+	Find empty capture folders inside a sorted root like:
+		root_folder / SLATE / DATA_TYPE / CAPTURE_FOLDER
+	"""
 	empty_folders = []
 
-	for slate in os.listdir(shoot_folder):
-		slate_path = os.path.join(shoot_folder, slate)
+	if not os.path.isdir(root_folder):
+		return empty_folders
+
+	for slate in os.listdir(root_folder):
+		slate_path = os.path.join(root_folder, slate)
 		if not os.path.isdir(slate_path):
 			continue
 
@@ -140,12 +356,46 @@ def tag_empty_folders(empty_folders):
 
 # *********************************************************************#
 @timer_function
-def sort_data(shoot_folder, subfolder_check=False):
-	moves = []
-	source_folders = set(define_shoot_data(shoot_folder))
+def sort_slate_data(target_folder, settings_data):
+	"""
+	Sort only data types whose rules are marked:
+		sort_by = SLATE
 
-	for data_type_folder in define_shoot_data(shoot_folder):
-		data_type = os.path.basename(data_type_folder)
+	Supports:
+	1. Full shoot folder input
+	2. Single data type folder input
+
+	Destination structure:
+		output_root / SLATES / SLATE / DATA_TYPE / RENAMED_CAPTURE_FOLDER
+	"""
+	moves = []
+	operations = []
+	rule_map = get_slate_rule_map(settings_data)
+
+	if not rule_map:
+		return {
+			"moves": [],
+			"output_roots": set(),
+			"operations": [],
+		}
+
+	source_folders = []
+	output_roots = set()
+
+	for data_type, rule in rule_map.items():
+		data_type_folder, output_root = resolve_data_type_folder_and_output_root(
+			target_folder,
+			data_type
+		)
+
+		if not data_type_folder or not output_root:
+			continue
+
+		source_folders.append(data_type_folder)
+		output_roots.add(output_root)
+
+		slates_root = os.path.join(output_root, "SLATES")
+		os.makedirs(slates_root, exist_ok=True)
 
 		for item in os.listdir(data_type_folder):
 			src_path = os.path.join(data_type_folder, item)
@@ -154,29 +404,139 @@ def sort_data(shoot_folder, subfolder_check=False):
 				continue
 
 			slate = item.split("_")[0].upper()
+			focal_value = detect_folder_focal_length(src_path)
 
-			dst_path = os.path.join(
-				shoot_folder,
-				slate,
-				data_type,
-				item
+			renamed_item = build_renamed_folder_name(
+				original_name=item,
+				rule=rule,
+				settings_data=settings_data,
+				focal_value=focal_value,
 			)
 
-			moves.append((src_path, dst_path))
+			dst_path = os.path.join(
+				slates_root,
+				slate,
+				data_type,
+				renamed_item
+			)
 
-	for src, dst in moves:
+			moves.append((src_path, dst_path, rule))
+
+	for src, dst, rule in moves:
 		os.makedirs(os.path.dirname(dst), exist_ok=True)
 		shutil.move(src, dst)
+
+		operations.append({
+			"type": "move",
+			"from": src,
+			"to": dst,
+		})
+
+		if rule.get("split_image_type", False) and os.path.isdir(dst):
+			file_split(dst)
+
+			operations.append({
+				"type": "split",
+				"folder": dst,
+				"created_subfolders": [],
+			})
 
 	for folder in source_folders:
 		if os.path.exists(folder) and not os.listdir(folder):
 			os.rmdir(folder)
 
-	if subfolder_check:
-		for _, dst in moves:
-			if os.path.isdir(dst):
-				if any(os.path.isfile(os.path.join(dst, f)) for f in os.listdir(dst)):
-					file_split(dst)
+	return {
+		"moves": moves,
+		"output_roots": output_roots,
+		"operations": operations,
+	}
+
+@timer_function
+def process_keep_structure_data(target_folder, settings_data):
+	"""
+	Process data types whose rules are marked:
+		sort_by = KEEP STRUCTURE
+
+	Behavior:
+	- keeps existing folder structure
+	- renames capture folders in place
+	- optionally splits image types inside those folders
+	"""
+	rule_map = get_keep_structure_rule_map(settings_data)
+
+	if not rule_map:
+		return {
+			"processed_folders": [],
+			"output_roots": set(),
+			"operations": [],
+		}
+
+	processed_folders = []
+	output_roots = set()
+	operations = []
+
+	for data_type, rule in rule_map.items():
+		data_type_folder, output_root = resolve_data_type_folder_and_output_root(
+			target_folder,
+			data_type
+		)
+
+		if not data_type_folder or not output_root:
+			continue
+
+		output_roots.add(output_root)
+
+		for item in os.listdir(data_type_folder):
+			src_path = os.path.join(data_type_folder, item)
+
+			if not os.path.isdir(src_path):
+				continue
+
+			focal_value = detect_folder_focal_length(src_path)
+
+			renamed_item = build_renamed_folder_name(
+				original_name=item,
+				rule=rule,
+				settings_data=settings_data,
+				focal_value=focal_value,
+			)
+
+			dst_path = os.path.join(data_type_folder, renamed_item)
+
+			final_folder_path = src_path
+
+			# Rename in place if needed
+			if src_path != dst_path:
+				if not os.path.exists(dst_path):
+					os.rename(src_path, dst_path)
+					final_folder_path = dst_path
+
+					operations.append({
+						"type": "rename_folder",
+						"from": src_path,
+						"to": dst_path,
+					})
+				else:
+					# If destination exists, keep original folder to avoid overwriting
+					final_folder_path = src_path
+
+			# Apply split after rename
+			if rule.get("split_image_type", False) and os.path.isdir(final_folder_path):
+				file_split(final_folder_path)
+
+				operations.append({
+					"type": "split",
+					"folder": final_folder_path,
+					"created_subfolders": [],
+				})
+
+			processed_folders.append(final_folder_path)
+
+	return {
+		"processed_folders": processed_folders,
+		"output_roots": output_roots,
+		"operations": operations,
+	}
 
 
 def rename_shoot_folder(shoot_folder, rename_remove="", rename_prefix="", rename_suffix=""):
@@ -207,33 +567,60 @@ def rename_shoot_folder(shoot_folder, rename_remove="", rename_prefix="", rename
 	return new_shoot_path
 
 
-def run_slate_sorter(shoot_folder, settings_data):
-	if not shoot_folder or not os.path.isdir(shoot_folder):
-		raise ValueError(f"'{shoot_folder}' is not a valid folder.")
+def run_slate_sorter(target_folder, settings_data):
+	if not target_folder or not os.path.isdir(target_folder):
+		raise ValueError(f"'{target_folder}' is not a valid folder.")
 
 	package_settings = settings_data.get("package_settings", {})
-
-	subfolder_check = package_settings.get("subfolder_images", False)
 	generate_yaml = package_settings.get("generate_yaml", False)
 	flag_empty_folders = package_settings.get("flag_empty_folders", False)
+	create_revert_manifest = package_settings.get("create_revert_manifest", True)
 
-	slate_list = get_slates(shoot_folder)
-	make_slate_folders(shoot_folder, slate_list)
-	sort_data(shoot_folder, subfolder_check=subfolder_check)
+	single_data_type_mode = is_single_data_type_input(target_folder, settings_data)
+
+	slate_result = sort_slate_data(target_folder, settings_data)
+	keep_result = process_keep_structure_data(target_folder, settings_data)
+
+	output_roots = set()
+	output_roots.update(slate_result.get("output_roots", set()))
+	output_roots.update(keep_result.get("output_roots", set()))
+
+	operations = []
+	operations.extend(slate_result.get("operations", []))
+	operations.extend(keep_result.get("operations", []))
+
+	# Actual output root for generated structures like SLATES
+	if len(output_roots) == 1:
+		output_root = next(iter(output_roots))
+	else:
+		output_root = target_folder
+
+	# For single data type mode, attach manifest + rename target to the selected folder
+	if single_data_type_mode:
+		manifest_root = target_folder
+		package_rename_target = target_folder
+	else:
+		manifest_root = output_root
+		package_rename_target = output_root
+
+	slates_root = os.path.join(output_root, "SLATES")
 
 	empty_folders = []
-	if flag_empty_folders:
-		empty_folders = find_empty_data_folders(shoot_folder)
+	if flag_empty_folders and not create_revert_manifest:
+		# Skip empty-folder tagging for reversible sorts for now
+		empty_folders.extend(find_empty_data_folders(slates_root))
 
-	if generate_yaml:
-		print("Generating report...")
-		generate_report.generate_report(shoot_folder, settings_data)
-		print("Report generation finished.")
+		for folder_path in keep_result.get("processed_folders", []):
+			if os.path.isdir(folder_path) and not folder_contains_images(folder_path):
+				empty_folders.append(folder_path)
 
 	print("\nProcessing complete.")
 	return {
-		"final_path": shoot_folder,
-		"empty_folders": empty_folders
+		"final_path": output_root,
+		"manifest_root": manifest_root,
+		"package_rename_target": package_rename_target,
+		"empty_folders": empty_folders,
+		"operations": operations,
 	}
 
 
@@ -245,13 +632,29 @@ def main():
 	shoot_folder = sys.argv[1]
 
 	settings_data = {
+		"project_details": {
+			"project_name": "TEST_SHOW",
+			"shoot_date": "2026-04-10",
+			"wrangler": "Harry",
+			"unit": "Main",
+		},
 		"package_settings": {
 			"rename_package": True,
 			"prefix": "",
 			"suffix": "_sorted",
-			"subfolder_images": False,
 			"generate_yaml": False,
-		}
+			"flag_empty_folders": False,
+		},
+		"rename_rules": [
+			{
+				"name": "HDRI",
+				"data_type": "HDRI",
+				"sort_by": "SLATE",
+				"split_image_type": True,
+				"delete_empty_folders": False,
+				"naming_rule": "{DATE}_{SLATE}_{FOCAL}_{REST}",
+			}
+		]
 	}
 
 	try:

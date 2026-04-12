@@ -1,0 +1,17 @@
+project_details:
+  project_name: The_Quickening
+package_settings:
+  rename_package: false
+  remove: ''
+  prefix: ''
+  suffix: ''
+  generate_yaml: false
+  notify_by_email: false
+  flag_empty_folders: false
+rename_rules:
+- name: PHOTOGRAMMETRY
+  data_type: PHOTOGRAMMETRY
+  sort_by: SLATE
+  split_image_type: true
+  delete_empty_folders: false
+  naming_rule: '{DATE}_{DATA_TYPE}_{ALL}'

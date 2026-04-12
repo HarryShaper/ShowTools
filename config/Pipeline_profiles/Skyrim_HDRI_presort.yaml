@@ -1,0 +1,17 @@
+project_details:
+  project_name: Skyrim
+package_settings:
+  rename_package: true
+  remove: ''
+  prefix: ''
+  suffix: _presorted
+  generate_yaml: false
+  notify_by_email: false
+  create_revert_manifest: true
+rename_rules:
+- name: HDRI
+  data_type: HDRI
+  sort_by: KEEP STRUCTURE
+  split_image_type: true
+  delete_empty_folders: false
+  naming_rule: '{DATE}_{DATA_TYPE}_{ALL}'

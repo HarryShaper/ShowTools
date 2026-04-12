@@ -1,0 +1,47 @@
+project_details:
+  project_name: Applie Pie
+package_settings:
+  rename_package: true
+  remove: _dump
+  prefix: ''
+  suffix: _SORTED
+  generate_yaml: true
+  notify_by_email: false
+  create_revert_manifest: true
+rename_rules:
+- name: pano
+  data_type: pano
+  sort_by: ASSET
+  split_image_type: false
+  delete_empty_folders: false
+  naming_rule: '{DATE}_{DATA_TYPE}_{ALL}'
+- name: textures
+  data_type: textures
+  sort_by: ASSET
+  split_image_type: false
+  delete_empty_folders: false
+  naming_rule: '{DATE}_{DATA_TYPE}_{ALL}_{FOCAL}'
+- name: photogrammetry
+  data_type: photogrammetry
+  sort_by: ASSET
+  split_image_type: false
+  delete_empty_folders: false
+  naming_rule: '{DATE}_{DATA_TYPE}_{ALL}'
+- name: asset_ref
+  data_type: asset_ref
+  sort_by: ASSET
+  split_image_type: false
+  delete_empty_folders: false
+  naming_rule: '{DATA_TYPE}_{ALL}'
+- name: hdri
+  data_type: hdri
+  sort_by: SLATE
+  split_image_type: false
+  delete_empty_folders: false
+  naming_rule: '{DATE}_{DATA_TYPE}_{ALL}'
+- name: overview
+  data_type: overview
+  sort_by: SLATE
+  split_image_type: false
+  delete_empty_folders: false
+  naming_rule: '{DATA_TYPE}_{ALL}'
