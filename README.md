@@ -1,19 +1,22 @@
 # 🎬 ShowTools
 
-ShowTools is a lightweight VFX on-set utility designed to automate image sorting, package organisation, and report generation for shoot data.
+ShowTools is a lightweight VFX on-set utility designed to improve the speed and consistency of data sorting.
 
-Built for speed and simplicity, it allows wranglers and capture technicians to quickly structure capture data, apply naming conventions, and generate production-ready outputs.
+Built for speed and simplicity, it allows wranglers and capture technicians to quickly structure capture data, apply naming conventions, maniuplate file types, and generate user reports.
 
 ---
 
 ## ✨ Features
 
-* 📂 Automatic slate-based folder sorting
+* 📂 Quickly sort full shoot-day packages, or pre-sort single data-sets.
+* 🧠 Multiple sorting methods:
+  * **Slate-based sorting**
+  * **Asset-based sorting**
 * 🧾 YAML report generation
-* 🏷️ Flexible package renaming (prefix / suffix / cleanup)
-* ⚠️ Empty folder detection and tagging
-* 📸 Optional image subfolder splitting
-* ⚙️ Configurable pipeline profiles
+* 🏷️ Bulk renaming across multiple folders with specified targetting
+* 📸 Automatic focal length metadata detection
+* 📁 Optional image type splitting (RAW / JPEG)
+* ⚙️ Configurable pipeline and user profiles (YAML)
 * 📧 Email notification integration
 * 🖥️ Cross-platform support (Windows + macOS)
 
@@ -25,13 +28,14 @@ Built for speed and simplicity, it allows wranglers and capture technicians to q
 ShowTools/
 ├── assets/                # Icons and UI assets
 ├── config/                # Pipeline profiles & defaults
-├── scripts/               # Launch scripts (Windows/macOS)
+├── launchers/             # Launch scripts (Windows/macOS)
 ├── showtools/             # Main Python package
 │   ├── tools/             # Internal tools (e.g. FileSplitter)
 │   ├── resources/         # Qt resources
 │   ├── ui/                # UI files
 │   ├── ShowTools.py       # Main application entry
 │   ├── slate_sorter.py
+│   ├── asset_sorter.py
 │   └── generate_report.py
 ├── requirements.txt
 ├── README.md
@@ -87,7 +91,7 @@ python -m showtools.ShowTools
 #### First time only (required)
 
 ```bash
-chmod +x scripts/launch_macOS.command
+chmod +x launchers/launch_macOS.command
 
 ### macOS Security Notice
 
@@ -102,7 +106,7 @@ If macOS blocks the launcher:
 Double-click:
 
 ```
-scripts/launch_macOS.command
+launchers/launch_macOS.command
 ```
 
 Or run:
@@ -121,7 +125,7 @@ python3 -m showtools.ShowTools
 
 ---
 
-## ⚙️ Usage Overview
+## ⚙️ Basic Usage
 
 1. Select a **target folder** containing capture data
 2. Load or create a **pipeline profile**
@@ -135,11 +139,18 @@ python3 -m showtools.ShowTools
 
 The tool will:
 
-* sort files into slate folders
+* sort files into slate/asset folders
 * optionally split image folders
 * generate a report
-* tag empty folders
 * optionally rename the package
+
+---
+## 🔁 Reversible Sorting
+
+If enabled:
+* A .showtools manifest is created
+* You can revert the entire process
+* Restores original structure and names
 
 ---
 
@@ -149,6 +160,7 @@ The tool will:
 PySide6
 Qt.py
 PyYAML
+Pillow
 ```
 
 ---
@@ -161,14 +173,22 @@ PyYAML
 * Tested on Windows and macOS
 
 ---
+## 📚 Documentation & Tutorials
 
-## 🚧 Future Improvements
+For more detailed guides:
 
-* One-click installer (Windows/macOS)
-* Native macOS `.app` bundle
-* Enhanced UI scaling consistency
-* Expanded pipeline profile support
+📖 Wiki:
+👉 (link to GitHub Wiki)
 
+🎥 Video Tutorials:
+👉 (link to YouTube channel / playlist)
+
+Includes:
+
+*Pipeline profiles
+*Asset sorting setup
+*Revert workflow
+*Real-world examples
 ---
 
 ## 👤 Author
