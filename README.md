@@ -75,7 +75,7 @@ python -m pip install -r requirements.txt
 Double-click:
 
 ```
-scripts/launch_windows.bat
+launchers/launch_windows.bat
 ```
 
 Or run:
@@ -92,14 +92,14 @@ python -m showtools.ShowTools
 
 ```bash
 chmod +x launchers/launch_macOS.command
-
+```
 ### macOS Security Notice
 
 If macOS blocks the launcher:
 
 - Right-click → Open
 - Or go to System Settings → Privacy & Security → Allow Anyway
-```
+
 
 #### Then launch
 
