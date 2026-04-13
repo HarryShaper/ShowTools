@@ -73,7 +73,7 @@ python -m pip install -r requirements.txt
 >    osascript <<EOF
 >tell application "Terminal"
 >    activate
->    do script "cd '/Users/harryshaper/Documents/Personal_VFX/ShowTools' && python3 -m showtools.ShowTools \"$f\""
+>    do script "cd 'REPLACE_THIS' && python3 -m showtools.ShowTools \"$f\""
 >end tell
 >EOF
 >done
