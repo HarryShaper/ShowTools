@@ -45,7 +45,7 @@ PIPELINE_PROFILES_PATH = ROOT_DIR / "config" / "Pipeline_profiles"
 SHOW_DEFAULTS_DIR = ROOT_DIR / "config" / "Show_defaults"
 UI_PATH = CURRENT_PATH / "ui" / "ShowTools.ui"
 
-SELECTED_DEFAULT_SETTINGS = "show_defaults_badlands_2U.yaml" # CHANGE THIS <<-
+SELECTED_DEFAULT_SETTINGS = "GOW_MU.yaml" # CHANGE THIS <<-
 
 
 def icon_path(name):
@@ -2040,7 +2040,7 @@ class ShowTools:
 		self.open_link("https://www.linkedin.com/in/harry-shaper-vfx/")
 
 	def press_loadYoutube(self):
-		self.open_link("https://www.youtube.com/")
+		self.open_link("https://www.youtube.com/playlist?list=PLtRNjWjQ6iF6tMaf7kevFWNmKhQIWUwiI")
 
 	def press_loadWebsite(self):
 		self.open_link("https://www.shapervfx.com/")
