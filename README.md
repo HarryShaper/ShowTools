@@ -66,6 +66,19 @@ python -m pip install -r requirements.txt
 > python3 -m pip install -r requirements.txt
 > ```
 
+>For Quick action - automator
+> ```bash
+>for f in "$@"
+>do
+>    osascript <<EOF
+>tell application "Terminal"
+>    activate
+>    do script "cd '/Users/harryshaper/Documents/Personal_VFX/ShowTools' && python3 -m showtools.ShowTools \"$f\""
+>end tell
+>EOF
+>done
+> ```
+
 ---
 
 ## ▶️ Running the Tool
