@@ -213,6 +213,6 @@ VFX Wrangler / Developer
 
 ## 📜 License
 
-MIT License
+Undecided - All rights reserved to Harry Shaper
 
 ---
